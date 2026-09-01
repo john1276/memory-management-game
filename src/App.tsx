@@ -1,6 +1,7 @@
 import './App.css'
 
 const memoryCells = ['A', 'A', null, null, 'B', 'B', null, null]
+const usedSlots = memoryCells.filter((taskId) => taskId !== null).length
 
 function App() {
   return (
@@ -50,7 +51,9 @@ function App() {
               <p>8 slots</p>
             </div>
 
-            <span>5 / 8 used</span>
+            <span>
+              {usedSlots} / {memoryCells.length} used
+            </span>
           </div>
 
           <div className="memory-grid">
