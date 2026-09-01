@@ -151,27 +151,30 @@ Next + 1 Request
 
 ### Phase 2 — Workload / Request Phase
 
-讀取本 Tick 的新 Request。
+讀取本 Tick 的新 Request，並建立對應的 Runtime Task / Event。
 
-若 Request 無法立即進入處理流程，則可進入 FIFO Queue。
+Workload 中尚未發生的 Request 屬於未來輸入資料；它們可供 UI 顯示 Current + Next 2 Preview，但不等同於 Runtime Waiting Queue。
 
-### Phase 3 — Rule Phase
+若已生成的 Task 因系統狀態或玩家 Rule 而需要等待，則可進入 FIFO Queue。
 
-依目前 Event 與玩家規則進行判斷與操作。
+### Phase 3 — Rule Execution Phase
 
-### Phase 4 — Validation
+依目前 Event 執行對應的 Rule Branch。
 
-檢查所有嘗試執行的 Action。
+Rule / Statement 依玩家設定順序執行；Condition 在實際執行到該位置時讀取最新 Simulation State；Action 成功後立即更新 State。
 
-若發生：
+若 Action 執行時發生非法操作、資源不足或其他 Runtime Failure：
 
-- 非法操作
-- 無法完成的操作
-- 資源衝突
-- Rule Action 互相衝突
-- 其他不可接受狀態
+```text
+FAILURE
+→ HALT
+```
 
-則：
+### Phase 4 — State Validation
+
+Rule Phase 正常完成後，檢查 Simulation State 是否仍符合系統基本限制與 invariant。
+
+若發生不可接受狀態：
 
 ```text
 FAILURE
@@ -200,7 +203,17 @@ Incoming Request
      Memory
 ```
 
-Queue 的存在允許系統在 Split、Compaction 或其他耗時操作期間繼續接收 Request。
+Queue 用來保存「已經生成，但目前需要等待」的 Runtime Task。
+
+它與 Workload Preview 不同：
+
+- Workload / Generator：定義尚未發生的 Task 輸入。
+- Current + Next 2：只是從 Workload 取出的預覽。
+- FIFO Queue：保存已生成、但尚未進入 Memory 處理流程的 Task。
+
+Queue 不是核心盤面；MVP 的主要決策空間仍是有限 Memory 格子的配置與 Rule 設計。
+
+Queue 的存在允許系統在 Split、Compaction 或其他耗時操作期間保存需要等待的 Request，並為未來 Task Waiting / Waiting Penalty 留出擴充空間。
 
 MVP 階段：
 
@@ -269,50 +282,145 @@ Enqueue
 
 ---
 
-## 9. Multi-Rule Execution Semantics
+## 9. Rule Execution Semantics
 
-同一個 Event 發生時：
+Rule System 採用：
 
-> 所有符合條件的 Rule 都會嘗試執行。
+> Ordered / Stateful / Depth-First Execution
+
+概念上接近一個簡化的直譯器。
+
+Rule Editor 可以保證玩家建立的是結構合法、參數合法的 Rule Program；但不保證該 Program 在實際 Workload 上一定能成功執行。
+
+### 9.1 Event / Rule Order
+
+當某個 Event 發生時，系統會從對應的 Rule / WHEN Branch 開始，依玩家排列的順序逐一執行。
 
 不是 First-Match。
+
+前一條 Rule 成功執行，不代表後面的 Rule 不再處理；系統會繼續往下執行，直到該 Event 的 Rule Program 結束，或發生 Failure。
+
+若同一 Event 有多個 Rule / Branch，則依玩家設定的順序處理。
+
+### 9.2 Stateful Condition Evaluation
+
+Condition 不會在 Event 發生瞬間一次預先計算。
+
+每一個 IF 都在「實際執行到該 Statement 時」讀取最新的 Simulation State。
 
 例如：
 
 ```text
-WHEN Request Arrives
-IF Size > 3
-DO Allocate
+Free Space = 5
+Task Size = 3
+
+IF Free Space >= Task Size
+    Allocate
+
+IF Free Space >= 4
+    ...
 ```
 
-以及：
+第一個 IF 成立並成功 Allocate 後：
 
 ```text
-WHEN Request Arrives
-IF Splittable
-DO Split
+Free Space = 2
 ```
 
-若一個 Task 同時符合兩者，兩條規則都會嘗試執行。
-
-因此玩家必須使用：
+因此第二個 IF 會使用：
 
 ```text
-IF
+Free Space = 2
+```
+
+重新判斷，並因條件不成立而跳過。
+
+也就是：
+
+> 前面的 Action 會立即影響後面的 Condition。
+
+### 9.3 Depth-First Conditional Execution
+
+IF / ELSE 採一般程式控制流程語意。
+
+```text
+IF condition
+    statements
 ELSE
-其他互斥條件
+    statements
 ```
 
-來避免不希望發生的重疊操作。
+若 Condition 為 True：
 
-若多個 Action 最終互相衝突：
+> Depth-First 執行該 Branch 內的 Statements。
+
+Branch 執行完成後，回到上一層並繼續下一個 Statement。
+
+若 Condition 為 False：
+
+> 跳過該 Branch，執行 ELSE（若存在）或下一個 Statement。
+
+因此 Rule 執行更接近直譯器的循序 / DFS 流程，而不是 BFS 或一次性收集所有 Matching Rule。
+
+### 9.4 Action Execution
+
+Action 在實際執行時立即作用於 Simulation State。
+
+例如：
+
+```text
+Allocate
+Split
+Compact
+Enqueue
+...
+```
+
+Action 成功後產生的 Memory / Task / Queue 狀態改變，會立即成為後續 Statement 所看到的狀態。
+
+系統不進行預先的全域 Conflict Resolution，也不預先保證整套 Rule 最終一定能跑完。
+
+### 9.5 Rule Validity vs Runtime Failure
+
+Rule 結構合法：
+
+> 不代表執行一定成功。
+
+Run 前可以檢查的問題，例如：
+
+```text
+缺少 IF 參數
+ELSE 沒有對應 IF
+使用不存在的 Action
+輸入值不在合法格式
+```
+
+屬於 Rule Program / 結構錯誤，應在開始執行前阻止。
+
+但下列情況屬於 Runtime Behavior：
+
+```text
+Allocate 4，但當下沒有合法連續空間
+
+對目前不能 Split 的 Task 執行 Split
+
+前一個 Action 改變 State，導致後續 Action 變得非法
+```
+
+這些 Rule 本身仍然可以是合法程式。
+
+實際執行到失敗位置時：
 
 ```text
 FAILURE
-→ HALT
+→ SYSTEM HALT
 ```
 
-Rule 設計本身因此也是 Puzzle 的一部分。
+系統不 Rollback。
+
+Failure 發生前已成功執行的 Action，其 State 變更保留，讓玩家可以直接觀察系統「跑到哪裡炸掉」。
+
+Rule 設計與 Runtime Behavior 本身因此就是 Puzzle / Debugging 的一部分。
 
 ---
 
@@ -618,6 +726,7 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 - 更多 WHEN Events
 - 更多 IF Conditions
 - 更多 Action
+- TRY / Runtime Failure Handling Blocks
 - Paging / Page Replacement
 - Virtual Memory
 - Cache / Memory Hierarchy
@@ -668,11 +777,13 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 - [x] 1D Memory Model
 - [x] Rectangular UI Representation
 - [x] Tick-based System
+- [x] Base Domain Objects Implemented / Tested (Task / Memory / TaskQueue / Workload)
+- [x] Base Simulation Engine Implemented / Tested
 - [x] Extensible Task Model
 - [x] FIFO Queue
 - [x] Structured / Block-based Rule Editor
 - [x] WHEN / IF / ELSE / Action Concept
-- [x] All Matching Rules Attempt Execution
+- [x] Ordered / Stateful / Depth-First Rule Execution Semantics
 - [x] Conflict → Failure → Halt
 - [x] No Rule Editing During Run
 - [x] Split
@@ -687,7 +798,7 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 
 尚待 Prototype 階段決定：
 
-- [ ] Exact Task Schema
+- [ ] Finalize Exact Task Schema / Score-related Properties
 - [ ] Exact Rule Primitive List
 - [ ] Memory / Queue Capacity
 - [ ] First Prototype Workload Data
@@ -698,18 +809,34 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 
 ## 22. Next Recommended Step
 
-下一步不需要再擴大遊戲概念討論。
+目前 Base Domain Objects 與最基本的 Simulation Engine 已完成並通過單元測試。
+
+下一步應進入 Rule Interpreter 的最小 Vertical Slice，而不是繼續擴大 Base Object。
 
 建議依序處理：
 
-1. 定義 MVP 的精確 Task Schema。
-2. 列出第一版可用的 Rule Primitive。
-3. 設計第一個 Prototype Workload。
-4. 定義最小可執行 Simulation Engine。
-5. 製作可玩的第一版 UI。
-6. 實際遊玩並記錄：
-   - 哪些地方有趣？
-   - 哪些地方只是麻煩？
-   - 玩家是否真的會想最佳化？
-   - Fragmentation / Queue / Rule Debugging 哪一塊最有樂趣？
-7. 再決定 Future Work 的優先方向。
+1. 定義最小 Rule Program Model：
+   - Request Arrives Trigger
+   - Statement
+   - IF / ELSE Condition
+   - Action
+2. 實作 Ordered / Stateful / Depth-First Rule Interpreter。
+3. 先接入最小 Action：Allocate。
+4. 將 Runtime Failure 接回 SimulationEngine 的 Failure → Halt 與 Log。
+5. 用測試驗證：
+   - 前一個 Action 會改變後續 IF 的判斷結果。
+   - IF / ELSE 採 DFS 執行。
+   - 合法 Rule 可以在 Runtime 中失敗。
+   - Failure 前已成功的 State Change 不 Rollback。
+6. Interpreter 跑通後，再依需求逐步加入：
+   - Enqueue
+   - Split
+   - Compact
+7. 再設計第一個 Prototype Workload 與 Score / Balance 數值。
+8. 將真正的 Simulation State 接回 React UI，進行第一輪可玩 Prototype 測試。
+
+此階段最重要的目標是驗證：
+
+> 「玩家設計 Rule → Runtime 逐步執行 → Memory 狀態改變 → 成功或 Failure」
+
+這條核心玩法 Pipeline 是否清楚、可 Debug、並具有最佳化空間。
