@@ -6,6 +6,8 @@ import type { Workload } from '../domain/Workload'
 
 import { SimulationEngine } from './SimulationEngine'
 
+import type { RuleProgram } from './rules/Rule'
+
 const taskA: TaskDefinition = {
   id: 'A',
   size: 2,
@@ -272,4 +274,207 @@ describe('SimulationEngine', () => {
 
     expect(engine.getState().tick).toBe(0)
   })
+
+  it('executes request-arrived rules when a task arrives', () => {
+  const task: TaskDefinition = {
+    id: 'A',
+    size: 3,
+    duration: 4,
+    splittable: false,
+  }
+
+  const workload: Workload = [
+    {
+      tick: 0,
+      task,
+    },
+  ]
+
+  const rules: RuleProgram = [
+    {
+      id: 'rule-1',
+      trigger: 'requestArrived',
+
+      body: [
+        {
+          type: 'if',
+
+          condition: {
+            type: 'taskSizeLessThanOrEqual',
+            value: 3,
+          },
+
+          then: [
+            {
+              type: 'action',
+
+              action: {
+                type: 'allocate',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    workload,
+    8,
+    rules
+  )
+
+  engine.start()
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(state.tick).toBe(1)
+
+  expect(
+    state.memory.getCells()
+  ).toEqual([
+    'A', 'A', 'A',
+    null, null, null,
+    null, null,
+  ])
+
+  expect(
+    state.tasks.get('A')?.status
+  ).toBe('active')
+
+  expect(state.status).toBe('running')
+})
+
+it('halts when a rule action fails at runtime', () => {
+  const task: TaskDefinition = {
+    id: 'A',
+    size: 9,
+    duration: 4,
+    splittable: false,
+  }
+
+  const workload: Workload = [
+    {
+      tick: 0,
+      task,
+    },
+  ]
+
+  const rules: RuleProgram = [
+    {
+      id: 'rule-1',
+      trigger: 'requestArrived',
+
+      body: [
+        {
+          type: 'action',
+
+          action: {
+            type: 'allocate',
+          },
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    workload,
+    8,
+    rules
+  )
+
+  engine.start()
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(state.status).toBe('halted')
+
+  expect(state.tick).toBe(0)
+
+  expect(state.failure).toEqual({
+    tick: 0,
+    taskId: 'A',
+    ruleId: 'rule-1',
+    action: 'allocate',
+    reason:
+      'Not enough contiguous memory for Task A',
+  })
+})
+it('keeps earlier state changes when a later rule fails', () => {
+  const task: TaskDefinition = {
+    id: 'A',
+    size: 3,
+    duration: 4,
+    splittable: false,
+  }
+
+  const workload: Workload = [
+    {
+      tick: 0,
+      task,
+    },
+  ]
+
+  const rules: RuleProgram = [
+    {
+      id: 'rule-1',
+      trigger: 'requestArrived',
+
+      body: [
+        {
+          type: 'action',
+          action: {
+            type: 'allocate',
+          },
+        },
+      ],
+    },
+
+    {
+      id: 'rule-2',
+      trigger: 'requestArrived',
+
+      body: [
+        {
+          type: 'action',
+          action: {
+            type: 'allocate',
+          },
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    workload,
+    8,
+    rules
+  )
+
+  engine.start()
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(state.status).toBe('halted')
+  expect(state.tick).toBe(0)
+
+  expect(
+    state.memory.getCells()
+  ).toEqual([
+    'A', 'A', 'A',
+    null, null, null,
+    null, null,
+  ])
+
+  expect(
+    state.tasks.get('A')?.status
+  ).toBe('active')
+
+  expect(state.failure?.ruleId).toBe(
+    'rule-2'
+  )
+})
 })

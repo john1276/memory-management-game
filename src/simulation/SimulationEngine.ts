@@ -15,13 +15,22 @@ import type {
   SimulationState,
 } from './SimulationState'
 
+import type { RuleProgram } from './rules/Rule'
+import { executeRuleProgram } from './rules/RuleInterpreter'
+import type { SimulationEvent } from './SimulationEvent'
+
 export class SimulationEngine {
   private state: SimulationState
 
+  private readonly ruleProgram: RuleProgram
+
   constructor(
     workload: Workload,
-    memoryCapacity: number
+    memoryCapacity: number,
+    ruleProgram: RuleProgram = []
   ) {
+    this.ruleProgram = ruleProgram
+
     this.state = this.createInitialState(
       workload,
       memoryCapacity
@@ -61,20 +70,24 @@ export class SimulationEngine {
   }
 
   runTick(): void {
-    if (this.state.status !== 'running') {
-      return
-    }
-
-    this.processActiveTasks()
-    this.processIncomingRequests()
-
-    // TODO:
-    // Rule Phase
-    // Action Phase
-    // Validation Phase
-
-    this.state.tick++
+  if (this.state.status !== 'running') {
+    return
   }
+
+  this.processActiveTasks()
+
+  if (this.state.status !== 'running') {
+    return
+  }
+
+  this.processIncomingRequests()
+
+  if (this.state.status !== 'running') {
+    return
+  }
+
+  this.state.tick++
+}
 
   private processActiveTasks(): void {
     for (const task of this.state.tasks.values()) {
@@ -99,50 +112,66 @@ export class SimulationEngine {
   }
 
   private processIncomingRequests(): void {
-    const arrivals = getArrivalsAtTick(
-      this.state.workload,
-      this.state.tick
+  const arrivals = getArrivalsAtTick(
+    this.state.workload,
+    this.state.tick
+  )
+
+  for (const definition of arrivals) {
+    const runtime =
+      createTaskRuntime(definition)
+
+    this.state.tasks.set(
+      definition.id,
+      runtime
     )
 
-    for (const definition of arrivals) {
-      const runtime =
-        createTaskRuntime(definition)
+    this.addLog(
+      `Task ${definition.id} arrived`
+    )
 
-      this.state.tasks.set(
-        definition.id,
-        runtime
+    const event: SimulationEvent = {
+      type: 'requestArrived',
+      taskId: definition.id,
+    }
+
+    const result = executeRuleProgram(
+      this.ruleProgram,
+      event,
+      this.state
+    )
+
+    if (!result.ok) {
+      this.halt(
+        result.reason,
+        result.taskId,
+        result.ruleId,
+        result.action
       )
 
-      this.addLog(
-        `Task ${definition.id} arrived`
-      )
-
-      /*
-       * 暫時不要決定：
-       *
-       * Allocate?
-       * Split?
-       * Enqueue?
-       *
-       * 這些之後應該由 Rule Engine 決定。
-       */
+      return
     }
   }
+}
 
   halt(
-    reason: string,
-    taskId?: TaskId
-  ): void {
-    this.state.status = 'halted'
+  reason: string,
+  taskId?: TaskId,
+  ruleId?: string,
+  action?: string
+): void {
+  this.state.status = 'halted'
 
-    this.state.failure = {
-      tick: this.state.tick,
-      taskId,
-      reason,
-    }
-
-    this.addLog(`FAILURE: ${reason}`)
+  this.state.failure = {
+    tick: this.state.tick,
+    taskId,
+    ruleId,
+    action,
+    reason,
   }
+
+  this.addLog(`FAILURE: ${reason}`)
+}
 
   private addLog(message: string): void {
     this.state.logs.push({
