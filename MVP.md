@@ -15,19 +15,26 @@ MVP 先採固定 Workload、固定規則環境與單一 Prototype 情境。
 
 核心循環：
 
-1. 玩家觀察目前 Memory、Queue、Current Request 與未來兩個 Request。
+1. 玩家觀察目前 Memory、Waiting List、Current Request 與未來兩個 Request。
 2. 玩家使用結構化／方塊化 Rule Editor 組裝處理規則。
 3. 玩家開始執行。
-4. 系統依 Tick 自動運作。
+4. 系統依 Tick 自動運作：
+   - Processing Task 推進並在完成時釋放 Memory。
+   - Workload 生成新的 Task，加入 Waiting List。
+   - Rule Interpreter 依序掃描 Waiting Task，嘗試依玩家 Rule 配置有限 Memory。
 5. 執行期間玩家不能修改 Rule。
-6. 若發生非法操作、無法處理或規則衝突，立即 Failure 並停機。
+6. 若發生非法操作、無法完成的 Action 或其他 Runtime Failure，立即 Failure 並停機。
 7. 若玩家想修改 Rule，必須 Stop / Reset，再重新執行。
-8. 若完整跑完 Workload 且無 Failure，則成功完成。
+8. 若完整跑完 Workload，且所有必要 Task 均完成、Failure = 0，則成功完成。
 9. 成功後依 Task 處理品質計算 Score，鼓勵玩家最佳化解法。
 
 概念上接近：
 
 > Design → Run → Observe → Fail / Complete → Reset → Improve
+
+MVP 的核心決策空間不是 Queue Scheduling，而是：
+
+> 玩家如何透過 Rule 有效利用有限的 Memory Arena，避免 Runtime Failure，並進一步最佳化配置品質。
 
 ---
 
@@ -46,7 +53,52 @@ MVP 採用一維連續 Memory。
 
 Memory 具有固定容量。
 
-### 3.2 Visual Representation
+MVP 的 Memory 應理解為：
+
+> 玩家目前負責管理的一個有限 Memory Arena / Physical-Memory-like Resource Pool。
+
+它不是在宣稱「整台電腦只有這幾格記憶體」，也不是要在 MVP 階段完整模擬整個 OS Memory Subsystem。
+
+MVP 只抽象最底層的有限實體資源配置問題：
+
+- Task 對 Memory 產生需求。
+- 玩家 Rule 決定何時與如何配置有限 Memory。
+- 配置可能造成 External Fragmentation。
+- Task 完成後釋放其使用的 Memory。
+
+### 3.2 Task Lifecycle and Memory Residency
+
+Task 的生命週期與 Memory Residency 應保持分離。
+
+也就是：
+
+> Task 的 Status 不應永久等同於「是否 Resident in Physical Memory」。
+
+MVP 可使用較中性的 Runtime Lifecycle，例如：
+
+```text
+Waiting
+→ Processing
+→ Completed
+```
+
+其中 Task 是否實際佔用 Memory，由 Memory / Allocation State 描述。
+
+此分離是為了避免把目前的 Contiguous Allocation Model 寫死成永久架構。
+
+未來若加入 Paging / Virtual Memory，可在 Task 與 Physical Memory 之間增加：
+
+```text
+Virtual Address Space
+Page
+Frame
+Page Table
+Swap
+```
+
+而不需要推翻 Task 本身的生命週期模型。
+
+### 3.3 Visual Representation
 
 UI 可以將一維 Memory 排成矩形，例如：
 
@@ -59,7 +111,7 @@ UI 可以將一維 Memory 排成矩形，例如：
 
 底層仍然是一維連續 Memory，不採真正的 2D 配置演算法。
 
-此設計是為了接近真實記憶體工作流，同時保留較直觀的 UI 呈現方式。
+此設計是為了保留直觀 UI，同時作為未來更高階 Memory Management Mechanism 的底層模擬基礎。
 
 ---
 
@@ -77,6 +129,42 @@ splittable
 score-related properties
 ```
 
+Runtime Task 另外需要保存模擬狀態，例如：
+
+```text
+status
+remainingDuration
+waitingTicks
+```
+
+### 4.1 Arrival Is an Event, Not a Persistent Status
+
+`Incoming` 應視為 Request / Event 的概念，而不是 Task 長時間停留的 Runtime Status。
+
+高階流程為：
+
+```text
+Workload Generates Task
+        ↓
+Request Arrives
+        ↓
+Waiting
+        ↓
+Allocate / Begin Processing
+        ↓
+Processing
+        ↓
+Completed
+        ↓
+Release Memory
+```
+
+Task 一旦由 Workload 生成，就已經是 Runtime Task。
+
+若尚未取得 Memory，則進入 Waiting List。
+
+### 4.2 Extensibility
+
 未來可擴充：
 
 ```text
@@ -89,6 +177,12 @@ special constraints
 resource requirements
 other OS / scheduling concepts
 ```
+
+其中：
+
+- `waitingTicks` 可先作為 Runtime Metric 存在。
+- `maxWait` / Deadline 是否造成 Failure，仍屬 Future Work / Prototype Tuning。
+- Memory Residency 不應被硬編碼成 TaskStatus，以保留未來 Paging / Virtual Memory 的擴充空間。
 
 MVP 不需要的欄位應放入 Future Work，而不是提前實作。
 
@@ -114,7 +208,15 @@ Tick 2 → Task C
 - MVP 主要用於驗證核心玩法。
 - 尚未確定遊戲最終方向。
 - 固定情境方便除錯、觀察、最佳化與比較不同 Rule Set。
-- 可以刻意設計特定問題，例如 Fragmentation、Split、Compaction、Queue Waiting 等。
+- 可以刻意設計特定問題，例如 Fragmentation、Split、Compaction、Waiting 等。
+
+Workload 的角色是：
+
+> 定義「未來何時會產生什麼 Task」。
+
+它不是 Runtime Waiting List。
+
+Task 到達指定 Tick 後，才會從 Workload / Generator 進入 Runtime Simulation。
 
 ### 5.1 Preview
 
@@ -130,6 +232,10 @@ Next + 1 Request
 
 > Current + Next 2
 
+此 Preview 是從尚未發生的 Workload 取得的 UI 資訊。
+
+它與已經生成的 Runtime Waiting Task 是不同概念。
+
 ---
 
 ## 6. Tick System
@@ -138,9 +244,9 @@ Next + 1 Request
 
 高階執行順序：
 
-### Phase 1 — Memory / Active Operation Phase
+### Phase 1 — Memory / Processing Phase
 
-執行目前 Memory 與系統中應進行的工作，例如：
+執行目前已取得 Memory、正在處理中的 Task 與系統操作，例如：
 
 - Task 執行進度
 - Duration 更新
@@ -149,19 +255,40 @@ Next + 1 Request
 - 已完成 Task 結算
 - 空間釋放
 
-### Phase 2 — Workload / Request Phase
+Task 完成後釋放其使用的 Memory。
 
-讀取本 Tick 的新 Request，並建立對應的 Runtime Task / Event。
+### Phase 2 — Workload / Arrival Phase
 
-Workload 中尚未發生的 Request 屬於未來輸入資料；它們可供 UI 顯示 Current + Next 2 Preview，但不等同於 Runtime Waiting Queue。
+讀取本 Tick 的新 Request。
 
-若已生成的 Task 因系統狀態或玩家 Rule 而需要等待，則可進入 FIFO Queue。
+每個到達的 Request：
 
-### Phase 3 — Rule Execution Phase
+```text
+Workload Entry
+→ Create Runtime Task
+→ Append to Waiting List
+```
 
-依目前 Event 執行對應的 Rule Branch。
+Arrival 本身是一個事件，但 Task 不會長時間停留在 `incoming` 狀態。
 
-Rule / Statement 依玩家設定順序執行；Condition 在實際執行到該位置時讀取最新 Simulation State；Action 成功後立即更新 State。
+### Phase 3 — Waiting Task / Rule Execution Phase
+
+Rule Phase 依 Waiting List 的 arrival order 掃描尚未處理的 Task。
+
+對每個 Waiting Task：
+
+1. 建立 / 觸發對應的 Waiting Task Rule Context。
+2. 依玩家 Rule Program 的順序執行。
+3. Condition 在實際執行到該位置時讀取最新 Simulation State。
+4. Action 成功後立即更新 State。
+5. 若 Task 成功取得 Memory 並開始處理，則離開 Waiting List。
+6. 若目前沒有任何 Rule 對該 Task 產生有效處置，Task 可保留在 Waiting List，等待後續 Tick 再次被掃描。
+
+前面的 Waiting Task 若未被處理：
+
+> 不會阻止系統繼續掃描後面的 Waiting Task。
+
+因此 Waiting List 保留 Arrival Order，但不採嚴格 Head-of-Line Blocking 的 FIFO Dequeue Semantics。
 
 若 Action 執行時發生非法操作、資源不足或其他 Runtime Failure：
 
@@ -170,9 +297,13 @@ FAILURE
 → HALT
 ```
 
-### Phase 4 — State Validation
+### Phase 4 — Waiting / State Validation Phase
 
-Rule Phase 正常完成後，檢查 Simulation State 是否仍符合系統基本限制與 invariant。
+Rule Phase 正常完成後：
+
+- 更新仍在 Waiting List 中 Task 的 Waiting Metrics（例如 `waitingTicks`）。
+- 檢查 Simulation State 是否仍符合系統基本限制與 invariant。
+- 未來若啟用 `maxWait` / Deadline，可在此檢查是否超時。
 
 若發生不可接受狀態：
 
@@ -185,44 +316,87 @@ FAILURE
 
 ---
 
-## 7. Queue
+## 7. Waiting List
 
-MVP 必須具有 Queue。
+MVP Runtime 需要一個 Waiting List，用來保存：
 
-Queue 採：
-
-> FIFO（First In, First Out）
+> 已經由 Workload 生成，但尚未取得 Memory、仍等待 Rule 處理的 Task。
 
 基本模型：
 
 ```text
-Incoming Request
-       ↓
-[ A ][ B ][ C ]  ← FIFO Queue
-       ↓
-     Memory
+Workload / Generator
+        ↓
+Waiting List
+[ A ][ B ][ C ]
+        ↓
+Rule Interpreter scans tasks in arrival order
+        ↓
+Managed Memory Arena
 ```
 
-Queue 用來保存「已經生成，但目前需要等待」的 Runtime Task。
+### 7.1 Waiting List vs Workload Preview
 
-它與 Workload Preview 不同：
+兩者必須分離：
 
 - Workload / Generator：定義尚未發生的 Task 輸入。
-- Current + Next 2：只是從 Workload 取出的預覽。
-- FIFO Queue：保存已生成、但尚未進入 Memory 處理流程的 Task。
+- Current + Next 2：尚未發生 Request 的預覽。
+- Waiting List：已經生成、目前仍等待 Memory 處理的 Runtime Task。
 
-Queue 不是核心盤面；MVP 的主要決策空間仍是有限 Memory 格子的配置與 Rule 設計。
+### 7.2 Ordering Semantics
 
-Queue 的存在允許系統在 Split、Compaction 或其他耗時操作期間保存需要等待的 Request，並為未來 Task Waiting / Waiting Penalty 留出擴充空間。
+Waiting List 保留 Task 的 Arrival Order。
 
-MVP 階段：
+但它不是嚴格 FIFO Queue：
 
-- Queue 為 FIFO。
-- 不允許任意重新排序。
-- Queue Capacity 為 Prototype Tuning 項目。
-- Priority Queue、Custom Scheduler 等留待 Future Work。
+> A 沒有被處理，不代表 B、C 一定不能被 Rule 掃描與處理。
 
-Queue Waiting 之後可參與 Score 計算，例如等待越久扣分越多。
+例如：
+
+```text
+Waiting:
+A size=5
+B size=2
+```
+
+若目前 Memory 無法處理 A，但能處理 B：
+
+```text
+scan A → remains waiting
+scan B → Rule may Allocate B
+```
+
+這是刻意設計。
+
+MVP 的主要 Puzzle 應聚焦在：
+
+> 有限 Memory 如何被 Rule 有效利用。
+
+而不是強迫所有問題都變成 Head-of-Line Blocking / Queue Scheduling。
+
+### 7.3 Waiting Metrics
+
+MVP 可追蹤：
+
+```text
+waitingTicks
+```
+
+Waiting Penalty 可參與 Score。
+
+`maxWait`、Deadline 或超時 Failure 暫不鎖死，保留給 Prototype Tuning / Future Work。
+
+### 7.4 Engineering Note
+
+現有程式中的 `TaskQueue` 可暫時保留作為底層容器。
+
+若後續語意穩定，建議再視需要改名為：
+
+```text
+WaitingList
+```
+
+避免名稱讓人誤以為必須採嚴格 FIFO dequeue。
 
 ---
 
@@ -240,19 +414,30 @@ Rule 大致分為：
 
 ### 8.1 Trigger / Structural Blocks
 
-例如：
+Rule Runtime 的主要 MVP Context 應逐步從單次 `Request Arrives`，調整為：
 
 ```text
-WHEN [Request Arrives]
+WHEN [Task Waiting]
 ```
+
+概念上：
+
+> 每個 Rule Phase 對 Waiting List 中的 Task 依序建立一次 Rule Execution Context。
+
+`Request Arrives` 仍可保留為未來 Event / Trigger，但不應成為唯一能處理 Task 的入口。
+
+這樣 Waiting Task 才能在後續 Tick 被再次評估，而不是只在出生當下得到一次機會。
 
 WHEN 本身不是 Action。
 
-其語意為：
+未來可加入更多 Event，例如：
 
-> 當某個 Event 發生時，開始判斷此 Rule Branch。
-
-未來可加入更多 Event。
+```text
+Request Arrives
+Task Completed
+Page Fault
+...
+```
 
 ### 8.2 Conditional Blocks
 
@@ -276,9 +461,12 @@ ELSE
 Allocate
 Split
 Compact
-Enqueue
 ...
 ```
+
+`Enqueue` 不再是核心必要 Action，因為新生成 Task 會自然進入 Waiting List。
+
+若未來需要顯式 Waiting / Defer 行為，再依 Prototype 需求加入。
 
 ---
 
@@ -659,14 +847,20 @@ Task Score 可以低於 0。
 1. Fragmentation 問題。
 2. Split 可以解決問題的情境。
 3. Compaction 可以救場，但不一定是最佳解的情境。
-4. Queue Waiting。
-5. 一個看似合理、但在後期會 Failure 的 Naive Strategy。
+4. Waiting Task 存在，且後到 Task 有機會在前一 Task 仍 Waiting 時被處理。
+5. 一個看似合理、但在後期會 Runtime Failure 的 Naive Strategy。
 6. 至少一個穩定通關解。
 7. 多個可進一步最佳化 Score 的空間。
 
 Prototype 的目的不是設計「完美第一關」，而是測試：
 
 > 這個核心玩法到底哪一部分最好玩？
+
+尤其要觀察：
+
+- Memory Fragmentation 是否真的帶來有趣決策？
+- Waiting Task 的存在是否增加規則設計空間，而不是變成單純排隊麻煩？
+- 玩家是否會自然產生「先能跑，再最佳化」的 Rule Programming 行為？
 
 ---
 
@@ -675,17 +869,32 @@ Prototype 的目的不是設計「完美第一關」，而是測試：
 暫定 UI：
 
 ```text
-┌────────────┬────────────────────┬──────────────┐
-│ Incoming   │                    │ Rule Editor  │
-│ / Queue    │       Memory       │              │
-│            │                    │ WHEN ...     │
-│ Current    │   [ ][ ][ ][ ]     │ IF ...       │
-│ Next       │   [ ][ ][ ][ ]     │ DO ...       │
-│ Next + 1   │                    │              │
-├────────────┴────────────────────┴──────────────┤
-│ Tick / Log / Failure Reason / Score           │
-└───────────────────────────────────────────────┘
+┌──────────────┬────────────────────┬──────────────┐
+│ Upcoming     │                    │ Rule Editor  │
+│ Current      │       Memory       │              │
+│ Next         │                    │ WHEN ...     │
+│ Next + 1     │   [ ][ ][ ][ ]     │ IF ...       │
+│              │   [ ][ ][ ][ ]     │ DO ...       │
+│ Waiting      │                    │              │
+│ [A][B][C]    │                    │              │
+├──────────────┴────────────────────┴──────────────┤
+│ Tick / Log / Failure Reason / Score             │
+└─────────────────────────────────────────────────┘
 ```
+
+UI 應明確區分：
+
+```text
+Upcoming / Workload Preview
+```
+
+與：
+
+```text
+Runtime Waiting List
+```
+
+避免玩家將「尚未生成的 Task」與「已生成但尚未取得 Memory 的 Task」混為一談。
 
 此 Layout 先作為 Prototype 基準。
 
@@ -721,14 +930,15 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 
 - Priority
 - Deadline / Max Wait
-- Priority Queue
-- Custom Scheduler
+- Priority Queue / Custom Scheduler
 - 更多 WHEN Events
 - 更多 IF Conditions
 - 更多 Action
 - TRY / Runtime Failure Handling Blocks
 - Paging / Page Replacement
 - Virtual Memory
+- Virtual Address Space / Page Table / Frame Mapping
+- Swap / Working Set / Thrashing
 - Cache / Memory Hierarchy
 - I/O
 - Thread / Process Scheduling
@@ -743,7 +953,37 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 - 更完整的視覺化 Debugger
 - 更複雜 Score Metrics
 
-以上內容均不應阻擋 MVP 完成。
+### 19.1 Virtual Memory Architecture Direction
+
+MVP 的 Contiguous Memory Arena 應視為：
+
+> 最底層的 Physical-Memory-like Simulation。
+
+未來 Virtual Memory 不應要求推翻現有 Task / Workload / Rule Runtime。
+
+理想擴充方向為：
+
+```text
+Task
+ ↓
+Virtual Address Space
+ ↓
+Page Table / Mapping Policy
+ ↓
+Physical Memory / Frames
+```
+
+也就是在 Task 與目前 Memory Layer 之間增加新的 Address Translation / Paging Layer。
+
+MVP 現階段只需要避免把：
+
+```text
+Task = 永久等同一整段 Contiguous Physical Memory
+```
+
+寫死成不可替換的架構。
+
+以上 Future Work 均不應阻擋 MVP 完成。
 
 ---
 
@@ -752,16 +992,19 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 以下內容尚未需要鎖死，可在 Prototype 實作與測試時決定：
 
 - Memory Capacity
-- Queue Capacity
+- Waiting List Capacity（是否需要上限）
 - Total Workload Length
 - Prototype 各 Task 的實際數值
 - Duration 分布
+- `waitingTicks` 是否只用於 Score，或會影響 Failure
+- 是否在 MVP 啟用 `maxWait` / Deadline
 - Score 權重
 - Waiting Penalty
 - Split Penalty
 - Compaction Score Cost
 - Dummy Compaction Algorithm 的精確移動順序
 - MVP 第一版實際開放哪些 WHEN / IF / Action Blocks
+- TaskWaiting Trigger 的最終命名與 UI 呈現方式
 - UI 細節與動畫速度
 
 這些屬於 Content / Balance / UX Tuning，不應阻擋核心 Engine 開發。
@@ -770,37 +1013,65 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 
 ## 21. Current MVP Status
 
-目前已確定：
+### 21.1 Specification / Design Confirmed
 
 - [x] Core Gameplay Loop
 - [x] Fixed Workload
-- [x] 1D Memory Model
+- [x] 1D Contiguous Memory Model
+- [x] Physical-Memory-like Managed Arena Interpretation
+- [x] Task Lifecycle and Memory Residency Separation
 - [x] Rectangular UI Representation
 - [x] Tick-based System
-- [x] Base Domain Objects Implemented / Tested (Task / Memory / TaskQueue / Workload)
-- [x] Base Simulation Engine Implemented / Tested
 - [x] Extensible Task Model
-- [x] FIFO Queue
-- [x] Structured / Block-based Rule Editor
+- [x] Workload Preview and Runtime Waiting State Are Separate Concepts
+- [x] Waiting List preserves Arrival Order but does not enforce Head-of-Line Blocking
+- [x] Structured / Block-based Rule Editor Direction
 - [x] WHEN / IF / ELSE / Action Concept
 - [x] Ordered / Stateful / Depth-First Rule Execution Semantics
-- [x] Conflict → Failure → Halt
+- [x] Runtime Failure → Halt
+- [x] No Rollback Semantics
 - [x] No Rule Editing During Run
-- [x] Split
+- [x] Split Design
 - [x] Split Cost = 1 Tick
-- [x] Dummy Compaction
+- [x] Dummy Compaction Design
 - [x] Compaction Cost Based on Moved Task Count
 - [x] Current + Next 2 Preview
 - [x] Win Condition
 - [x] Score Philosophy
 - [x] Prototype UI Direction
 - [x] Prototype Workload Design Philosophy
+- [x] Paging / Virtual Memory Remain Future Layers Above Current Physical-Memory-like MVP
 
-尚待 Prototype 階段決定：
+### 21.2 Engineering Implemented / Tested
 
-- [ ] Finalize Exact Task Schema / Score-related Properties
-- [ ] Exact Rule Primitive List
-- [ ] Memory / Queue Capacity
+- [x] Base Domain Objects (Task / Memory / TaskQueue / Workload)
+- [x] Memory Allocation / Release / First-Fit Unit Tests
+- [x] TaskQueue Unit Tests
+- [x] Workload / Tick Arrival Unit Tests
+- [x] Base Simulation Engine
+- [x] SimulationEngine Unit Tests
+- [x] Minimal Rule Program / AST Model
+- [x] Ordered / Stateful / DFS Rule Interpreter
+- [x] Allocate Runtime Action
+- [x] Runtime Failure Result Model
+- [x] Rule Interpreter ↔ SimulationEngine Integration
+- [x] Integration Tests for Rule-driven Allocation
+- [x] Integration Tests for Runtime Failure → Halt
+- [x] Integration Tests for No Rollback
+
+### 21.3 Next Engineering Work
+
+- [ ] Refactor Runtime Task Lifecycle away from persistent `incoming`
+- [ ] Introduce Waiting List semantics in SimulationState
+- [ ] Workload Arrival → Waiting List
+- [ ] Rule Phase scans Waiting Tasks in Arrival Order
+- [ ] Unhandled Waiting Task remains Waiting instead of disappearing / immediately failing
+- [ ] Track `waitingTicks`
+- [ ] Decide whether to rename TaskQueue → WaitingList
+- [ ] Refactor main Rule Context from RequestArrived-only to TaskWaiting / equivalent
+- [ ] Implement Split Runtime Action
+- [ ] Implement Compaction Runtime Action
+- [ ] Functional Rule Editor UI
 - [ ] First Prototype Workload Data
 - [ ] Score Numbers / Balancing
 - [ ] Final UI Details
@@ -809,34 +1080,55 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 
 ## 22. Next Recommended Step
 
-目前 Base Domain Objects 與最基本的 Simulation Engine 已完成並通過單元測試。
+目前已完成：
 
-下一步應進入 Rule Interpreter 的最小 Vertical Slice，而不是繼續擴大 Base Object。
+```text
+Base Domain Objects
+→ Base Simulation
+→ Rule AST / Program Model
+→ Ordered / Stateful / DFS Interpreter
+→ Allocate Action
+→ SimulationEngine Integration
+→ Runtime Failure / No Rollback Tests
+```
+
+下一步應先完成：
+
+> Task Lifecycle + Waiting List Semantics
+
+而不是立刻擴張更多 Rule Primitive。
 
 建議依序處理：
 
-1. 定義最小 Rule Program Model：
-   - Request Arrives Trigger
-   - Statement
-   - IF / ELSE Condition
-   - Action
-2. 實作 Ordered / Stateful / Depth-First Rule Interpreter。
-3. 先接入最小 Action：Allocate。
-4. 將 Runtime Failure 接回 SimulationEngine 的 Failure → Halt 與 Log。
-5. 用測試驗證：
-   - 前一個 Action 會改變後續 IF 的判斷結果。
-   - IF / ELSE 採 DFS 執行。
-   - 合法 Rule 可以在 Runtime 中失敗。
-   - Failure 前已成功的 State Change 不 Rollback。
-6. Interpreter 跑通後，再依需求逐步加入：
-   - Enqueue
+1. 調整 Task Runtime Lifecycle：
+   - 移除 `incoming` 作為持續狀態的依賴。
+   - 使用較中性的 `waiting → processing → completed`。
+   - Memory Residency 由 Memory / Allocation State 描述。
+2. 將 Runtime Queue 語意重構為 Waiting List：
+   - 保留 Arrival Order。
+   - 不採嚴格 Head-of-Line Blocking。
+3. 修改 Workload Arrival：
+   - 建立 Runtime Task。
+   - Task 直接加入 Waiting List。
+4. 修改 Rule Phase：
+   - 每 Tick 依序掃描 Waiting Tasks。
+   - 每個 Waiting Task 建立 `TaskWaiting`（或等價）Rule Context。
+   - Rule 成功 Allocate 後，Task 離開 Waiting List並開始 Processing。
+   - 沒有被處理的 Task 保留，下一 Tick 再次被掃描。
+5. 加入 `waitingTicks` 更新與測試。
+6. 補 integration tests：
+   - A 無法處理但仍 Waiting。
+   - B 可以在 A 仍 Waiting 時被 Allocate。
+   - 前一 Task 的 Action 會影響後一 Task看到的最新 Memory State。
+   - Waiting Task 下一 Tick 能再次被 Rule 評估。
+7. Waiting Lifecycle 穩定後，再加入：
    - Split
-   - Compact
-7. 再設計第一個 Prototype Workload 與 Score / Balance 數值。
-8. 將真正的 Simulation State 接回 React UI，進行第一輪可玩 Prototype 測試。
+   - Compaction
+8. 接著設計第一個 Prototype Workload 與 Score / Balance 數值。
+9. 最後將真正的 Simulation State 接回 React UI，進行第一輪可玩 Prototype 測試。
 
 此階段最重要的目標是驗證：
 
-> 「玩家設計 Rule → Runtime 逐步執行 → Memory 狀態改變 → 成功或 Failure」
+> 「Workload 產生 Memory Requests → Waiting List 保存未處理 Task → 玩家 Rule 反覆掃描並配置有限 Memory → Task 完成後釋放 → 成功或 Runtime Failure」
 
-這條核心玩法 Pipeline 是否清楚、可 Debug、並具有最佳化空間。
+這條 Pipeline 是否清楚、可 Debug，並且真的把遊戲焦點放在有限 Memory 的使用效率上。
