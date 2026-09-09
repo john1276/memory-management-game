@@ -19,6 +19,18 @@ export class TaskQueue {
     return this.items.includes(taskId)
   }
 
+  remove(taskId: TaskId): boolean {
+    const index = this.items.indexOf(taskId)
+
+    if (index === -1) {
+      return false
+    }
+
+    this.items.splice(index, 1)
+
+    return true
+  }
+
   get length(): number {
     return this.items.length
   }

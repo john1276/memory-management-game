@@ -81,7 +81,7 @@ describe('SimulationEngine', () => {
     expect(engine.getState().tasks.size).toBe(0)
   })
 
-  it('processes requests arriving at the current tick', () => {
+  it('puts arriving tasks into the waiting list', () => {
     const engine = new SimulationEngine(
       workload,
       8
@@ -101,7 +101,12 @@ describe('SimulationEngine', () => {
     expect(runtime).toBeDefined()
     expect(runtime?.definition).toBe(taskA)
     expect(runtime?.remainingDuration).toBe(3)
-    expect(runtime?.status).toBe('incoming')
+    expect(runtime?.status).toBe('waiting')
+    expect(runtime?.waitingTicks).toBe(1)
+
+    expect(state.queue.toArray()).toEqual([
+      'A',
+    ])
 
     expect(state.logs).toEqual([
       {
@@ -111,7 +116,7 @@ describe('SimulationEngine', () => {
     ])
   })
 
-  it('processes requests on later ticks', () => {
+  it('keeps unhandled arrivals waiting across later ticks', () => {
     const engine = new SimulationEngine(
       workload,
       8
@@ -129,6 +134,21 @@ describe('SimulationEngine', () => {
     expect(state.tasks.has('A')).toBe(true)
     expect(state.tasks.has('B')).toBe(true)
 
+    expect(state.tasks.get('A')?.status).toBe(
+      'waiting'
+    )
+    expect(state.tasks.get('A')?.waitingTicks).toBe(2)
+
+    expect(state.tasks.get('B')?.status).toBe(
+      'waiting'
+    )
+    expect(state.tasks.get('B')?.waitingTicks).toBe(1)
+
+    expect(state.queue.toArray()).toEqual([
+      'A',
+      'B',
+    ])
+
     expect(state.logs).toEqual([
       {
         tick: 0,
@@ -141,7 +161,7 @@ describe('SimulationEngine', () => {
     ])
   })
 
-  it('decreases remaining duration of active tasks', () => {
+  it('decreases remaining duration of processing tasks', () => {
     const engine = new SimulationEngine(
       [],
       8
@@ -150,7 +170,7 @@ describe('SimulationEngine', () => {
     const runtime =
       createTaskRuntime(taskA)
 
-    runtime.status = 'active'
+    runtime.status = 'processing'
 
     engine
       .getState()
@@ -169,7 +189,7 @@ describe('SimulationEngine', () => {
     ).toBe(2)
   })
 
-  it('completes an active task and releases its memory', () => {
+  it('completes a processing task and releases its memory', () => {
     const shortTask: TaskDefinition = {
       id: 'A',
       size: 2,
@@ -185,7 +205,7 @@ describe('SimulationEngine', () => {
     const runtime =
       createTaskRuntime(shortTask)
 
-    runtime.status = 'active'
+    runtime.status = 'processing'
 
     const state = engine.getState()
 
@@ -275,206 +295,376 @@ describe('SimulationEngine', () => {
     expect(engine.getState().tick).toBe(0)
   })
 
-  it('executes request-arrived rules when a task arrives', () => {
-  const task: TaskDefinition = {
-    id: 'A',
-    size: 3,
-    duration: 4,
-    splittable: false,
-  }
+  it('executes task-waiting rules for a waiting task', () => {
+    const task: TaskDefinition = {
+      id: 'A',
+      size: 3,
+      duration: 4,
+      splittable: false,
+    }
 
-  const workload: Workload = [
-    {
-      tick: 0,
-      task,
-    },
-  ]
+    const taskWorkload: Workload = [
+      {
+        tick: 0,
+        task,
+      },
+    ]
 
-  const rules: RuleProgram = [
-    {
-      id: 'rule-1',
-      trigger: 'requestArrived',
+    const rules: RuleProgram = [
+      {
+        id: 'rule-1',
+        trigger: 'taskWaiting',
 
-      body: [
-        {
-          type: 'if',
+        body: [
+          {
+            type: 'if',
 
-          condition: {
-            type: 'taskSizeLessThanOrEqual',
-            value: 3,
-          },
-
-          then: [
-            {
-              type: 'action',
-
-              action: {
-                type: 'allocate',
-              },
+            condition: {
+              type: 'taskSizeLessThanOrEqual',
+              value: 3,
             },
-          ],
-        },
-      ],
-    },
-  ]
 
-  const engine = new SimulationEngine(
-    workload,
-    8,
-    rules
-  )
+            then: [
+              {
+                type: 'action',
 
-  engine.start()
-  engine.runTick()
-
-  const state = engine.getState()
-
-  expect(state.tick).toBe(1)
-
-  expect(
-    state.memory.getCells()
-  ).toEqual([
-    'A', 'A', 'A',
-    null, null, null,
-    null, null,
-  ])
-
-  expect(
-    state.tasks.get('A')?.status
-  ).toBe('active')
-
-  expect(state.status).toBe('running')
-})
-
-it('halts when a rule action fails at runtime', () => {
-  const task: TaskDefinition = {
-    id: 'A',
-    size: 9,
-    duration: 4,
-    splittable: false,
-  }
-
-  const workload: Workload = [
-    {
-      tick: 0,
-      task,
-    },
-  ]
-
-  const rules: RuleProgram = [
-    {
-      id: 'rule-1',
-      trigger: 'requestArrived',
-
-      body: [
-        {
-          type: 'action',
-
-          action: {
-            type: 'allocate',
+                action: {
+                  type: 'allocate',
+                },
+              },
+            ],
           },
-        },
-      ],
-    },
-  ]
+        ],
+      },
+    ]
 
-  const engine = new SimulationEngine(
-    workload,
-    8,
-    rules
-  )
+    const engine = new SimulationEngine(
+      taskWorkload,
+      8,
+      rules
+    )
 
-  engine.start()
-  engine.runTick()
+    engine.start()
+    engine.runTick()
 
-  const state = engine.getState()
+    const state = engine.getState()
 
-  expect(state.status).toBe('halted')
+    expect(state.tick).toBe(1)
 
-  expect(state.tick).toBe(0)
+    expect(
+      state.memory.getCells()
+    ).toEqual([
+      'A', 'A', 'A',
+      null, null, null,
+      null, null,
+    ])
 
-  expect(state.failure).toEqual({
-    tick: 0,
-    taskId: 'A',
-    ruleId: 'rule-1',
-    action: 'allocate',
-    reason:
-      'Not enough contiguous memory for Task A',
+    expect(
+      state.tasks.get('A')?.status
+    ).toBe('processing')
+
+    expect(state.queue.toArray()).toEqual([])
+    expect(state.status).toBe('running')
   })
-})
-it('keeps earlier state changes when a later rule fails', () => {
-  const task: TaskDefinition = {
-    id: 'A',
-    size: 3,
-    duration: 4,
-    splittable: false,
-  }
 
-  const workload: Workload = [
-    {
+  it('retries a waiting task on a later tick', () => {
+    const waitingTask: TaskDefinition = {
+      id: 'A',
+      size: 2,
+      duration: 3,
+      splittable: false,
+    }
+
+    const blockerTask: TaskDefinition = {
+      id: 'X',
+      size: 2,
+      duration: 2,
+      splittable: false,
+    }
+
+    const rules: RuleProgram = [
+      {
+        id: 'rule-1',
+        trigger: 'taskWaiting',
+        body: [
+          {
+            type: 'if',
+            condition: {
+              type: 'freeSpaceGreaterThanOrEqual',
+              value: 2,
+            },
+            then: [
+              {
+                type: 'action',
+                action: {
+                  type: 'allocate',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const engine = new SimulationEngine(
+      [
+        {
+          tick: 0,
+          task: waitingTask,
+        },
+      ],
+      2,
+      rules
+    )
+
+    const state = engine.getState()
+    const blocker = createTaskRuntime(blockerTask)
+
+    blocker.status = 'processing'
+
+    state.tasks.set(blockerTask.id, blocker)
+    state.memory.allocateContiguous(
+      blockerTask.id,
+      blockerTask.size
+    )
+
+    engine.start()
+    engine.runTick()
+
+    expect(state.tasks.get('A')?.status).toBe(
+      'waiting'
+    )
+    expect(state.tasks.get('A')?.waitingTicks).toBe(1)
+    expect(state.queue.toArray()).toEqual(['A'])
+
+    engine.runTick()
+
+    expect(state.tasks.get('X')?.status).toBe(
+      'completed'
+    )
+    expect(state.tasks.get('A')?.status).toBe(
+      'processing'
+    )
+    expect(state.tasks.get('A')?.waitingTicks).toBe(1)
+    expect(state.queue.toArray()).toEqual([])
+    expect(state.memory.getCells()).toEqual([
+      'A',
+      'A',
+    ])
+  })
+
+  it('can process a later waiting task while an earlier task remains waiting', () => {
+    const taskTooLarge: TaskDefinition = {
+      id: 'A',
+      size: 3,
+      duration: 4,
+      splittable: false,
+    }
+
+    const taskThatFits: TaskDefinition = {
+      id: 'B',
+      size: 2,
+      duration: 4,
+      splittable: false,
+    }
+
+    const rules: RuleProgram = [
+      {
+        id: 'small-only',
+        trigger: 'taskWaiting',
+        body: [
+          {
+            type: 'if',
+            condition: {
+              type: 'taskSizeLessThanOrEqual',
+              value: 2,
+            },
+            then: [
+              {
+                type: 'action',
+                action: {
+                  type: 'allocate',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const engine = new SimulationEngine(
+      [
+        {
+          tick: 0,
+          task: taskTooLarge,
+        },
+        {
+          tick: 1,
+          task: taskThatFits,
+        },
+      ],
+      2,
+      rules
+    )
+
+    engine.start()
+    engine.runTick()
+    engine.runTick()
+
+    const state = engine.getState()
+
+    expect(state.tasks.get('A')?.status).toBe(
+      'waiting'
+    )
+    expect(state.tasks.get('A')?.waitingTicks).toBe(2)
+
+    expect(state.tasks.get('B')?.status).toBe(
+      'processing'
+    )
+    expect(state.tasks.get('B')?.waitingTicks).toBe(0)
+
+    expect(state.queue.toArray()).toEqual(['A'])
+    expect(state.memory.getCells()).toEqual([
+      'B',
+      'B',
+    ])
+  })
+
+  it('halts when a task-waiting rule action fails at runtime', () => {
+    const task: TaskDefinition = {
+      id: 'A',
+      size: 9,
+      duration: 4,
+      splittable: false,
+    }
+
+    const taskWorkload: Workload = [
+      {
+        tick: 0,
+        task,
+      },
+    ]
+
+    const rules: RuleProgram = [
+      {
+        id: 'rule-1',
+        trigger: 'taskWaiting',
+
+        body: [
+          {
+            type: 'action',
+            action: {
+              type: 'allocate',
+            },
+          },
+        ],
+      },
+    ]
+
+    const engine = new SimulationEngine(
+      taskWorkload,
+      8,
+      rules
+    )
+
+    engine.start()
+    engine.runTick()
+
+    const state = engine.getState()
+
+    expect(state.status).toBe('halted')
+    expect(state.tick).toBe(0)
+
+    expect(state.failure).toEqual({
       tick: 0,
-      task,
-    },
-  ]
+      taskId: 'A',
+      ruleId: 'rule-1',
+      action: 'allocate',
+      reason:
+        'Not enough contiguous memory for Task A',
+    })
 
-  const rules: RuleProgram = [
-    {
-      id: 'rule-1',
-      trigger: 'requestArrived',
+    expect(state.tasks.get('A')?.status).toBe(
+      'waiting'
+    )
+    expect(state.queue.toArray()).toEqual(['A'])
+  })
 
-      body: [
-        {
-          type: 'action',
-          action: {
-            type: 'allocate',
+  it('keeps earlier state changes when a later waiting rule fails', () => {
+    const task: TaskDefinition = {
+      id: 'A',
+      size: 3,
+      duration: 4,
+      splittable: false,
+    }
+
+    const taskWorkload: Workload = [
+      {
+        tick: 0,
+        task,
+      },
+    ]
+
+    const rules: RuleProgram = [
+      {
+        id: 'rule-1',
+        trigger: 'taskWaiting',
+
+        body: [
+          {
+            type: 'action',
+            action: {
+              type: 'allocate',
+            },
           },
-        },
-      ],
-    },
+        ],
+      },
 
-    {
-      id: 'rule-2',
-      trigger: 'requestArrived',
+      {
+        id: 'rule-2',
+        trigger: 'taskWaiting',
 
-      body: [
-        {
-          type: 'action',
-          action: {
-            type: 'allocate',
+        body: [
+          {
+            type: 'action',
+            action: {
+              type: 'allocate',
+            },
           },
-        },
-      ],
-    },
-  ]
+        ],
+      },
+    ]
 
-  const engine = new SimulationEngine(
-    workload,
-    8,
-    rules
-  )
+    const engine = new SimulationEngine(
+      taskWorkload,
+      8,
+      rules
+    )
 
-  engine.start()
-  engine.runTick()
+    engine.start()
+    engine.runTick()
 
-  const state = engine.getState()
+    const state = engine.getState()
 
-  expect(state.status).toBe('halted')
-  expect(state.tick).toBe(0)
+    expect(state.status).toBe('halted')
+    expect(state.tick).toBe(0)
 
-  expect(
-    state.memory.getCells()
-  ).toEqual([
-    'A', 'A', 'A',
-    null, null, null,
-    null, null,
-  ])
+    expect(
+      state.memory.getCells()
+    ).toEqual([
+      'A', 'A', 'A',
+      null, null, null,
+      null, null,
+    ])
 
-  expect(
-    state.tasks.get('A')?.status
-  ).toBe('active')
+    expect(
+      state.tasks.get('A')?.status
+    ).toBe('processing')
 
-  expect(state.failure?.ruleId).toBe(
-    'rule-2'
-  )
-})
+    expect(state.queue.toArray()).toEqual([])
+
+    expect(state.failure?.ruleId).toBe(
+      'rule-2'
+    )
+  })
 })

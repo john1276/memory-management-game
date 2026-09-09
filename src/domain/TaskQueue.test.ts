@@ -32,6 +32,20 @@ describe('TaskQueue', () => {
     expect(queue.dequeue()).toBe('C')
   })
 
+  it('removes a task without disturbing arrival order', () => {
+    const queue = new TaskQueue()
+
+    queue.enqueue('A')
+    queue.enqueue('B')
+    queue.enqueue('C')
+
+    expect(queue.remove('B')).toBe(true)
+    expect(queue.toArray()).toEqual(['A', 'C'])
+
+    expect(queue.remove('X')).toBe(false)
+    expect(queue.toArray()).toEqual(['A', 'C'])
+  })
+
   it('peek returns the first task without removing it', () => {
     const queue = new TaskQueue()
 

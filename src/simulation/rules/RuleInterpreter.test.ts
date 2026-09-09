@@ -52,31 +52,33 @@ const taskA: TaskDefinition = {
   splittable: true,
 }
 
-function addIncomingTask(
+function addWaitingTask(
   state: SimulationState
 ): void {
   state.tasks.set(
     taskA.id,
     createTaskRuntime(taskA)
   )
+
+  state.queue.enqueue(taskA.id)
 }
 
-const requestArrived: SimulationEvent = {
-  type: 'requestArrived',
+const taskWaiting: SimulationEvent = {
+  type: 'taskWaiting',
   taskId: 'A',
 }
 
 describe('RuleInterpreter', () => {
-  it('allocates a task when the condition is true', () => {
+  it('allocates a waiting task when the condition is true', () => {
     const state = createState()
 
-    addIncomingTask(state)
+    addWaitingTask(state)
 
     const program: RuleProgram = [
       {
         id: 'rule-1',
 
-        trigger: 'requestArrived',
+        trigger: 'taskWaiting',
 
         body: [
           {
@@ -103,7 +105,7 @@ describe('RuleInterpreter', () => {
 
     const result = executeRuleProgram(
       program,
-      requestArrived,
+      taskWaiting,
       state
     )
 
@@ -121,19 +123,21 @@ describe('RuleInterpreter', () => {
 
     expect(
       state.tasks.get('A')?.status
-    ).toBe('active')
+    ).toBe('processing')
+
+    expect(state.queue.toArray()).toEqual([])
   })
 
   it('executes the else branch when condition is false', () => {
     const state = createState()
 
-    addIncomingTask(state)
+    addWaitingTask(state)
 
     const program: RuleProgram = [
       {
         id: 'rule-1',
 
-        trigger: 'requestArrived',
+        trigger: 'taskWaiting',
 
         body: [
           {
@@ -162,7 +166,7 @@ describe('RuleInterpreter', () => {
 
     const result = executeRuleProgram(
       program,
-      requestArrived,
+      taskWaiting,
       state
     )
 
@@ -172,16 +176,17 @@ describe('RuleInterpreter', () => {
       state.memory.getFreeSpace()
     ).toBe(5)
   })
-    it('evaluates later conditions using the updated state', () => {
+
+  it('evaluates later conditions using the updated state', () => {
     const state = createState()
 
-    addIncomingTask(state)
+    addWaitingTask(state)
 
     const program: RuleProgram = [
       {
         id: 'rule-1',
 
-        trigger: 'requestArrived',
+        trigger: 'taskWaiting',
 
         body: [
           {
@@ -197,7 +202,7 @@ describe('RuleInterpreter', () => {
       {
         id: 'rule-2',
 
-        trigger: 'requestArrived',
+        trigger: 'taskWaiting',
 
         body: [
           {
@@ -224,7 +229,7 @@ describe('RuleInterpreter', () => {
 
     const result = executeRuleProgram(
       program,
-      requestArrived,
+      taskWaiting,
       state
     )
 
@@ -234,16 +239,17 @@ describe('RuleInterpreter', () => {
       state.memory.getFreeSpace()
     ).toBe(5)
   })
-    it('keeps previous state changes when a later action fails', () => {
+
+  it('keeps previous state changes when a later action fails', () => {
     const state = createState()
 
-    addIncomingTask(state)
+    addWaitingTask(state)
 
     const program: RuleProgram = [
       {
         id: 'rule-1',
 
-        trigger: 'requestArrived',
+        trigger: 'taskWaiting',
 
         body: [
           {
@@ -259,7 +265,7 @@ describe('RuleInterpreter', () => {
       {
         id: 'rule-2',
 
-        trigger: 'requestArrived',
+        trigger: 'taskWaiting',
 
         body: [
           {
@@ -275,7 +281,7 @@ describe('RuleInterpreter', () => {
 
     const result = executeRuleProgram(
       program,
-      requestArrived,
+      taskWaiting,
       state
     )
 
@@ -301,6 +307,8 @@ describe('RuleInterpreter', () => {
 
     expect(
       state.tasks.get('A')?.status
-    ).toBe('active')
+    ).toBe('processing')
+
+    expect(state.queue.toArray()).toEqual([])
   })
 })

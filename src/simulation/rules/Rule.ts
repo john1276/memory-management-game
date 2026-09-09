@@ -1,5 +1,6 @@
 export type Trigger =
   | 'requestArrived'
+  | 'taskWaiting'
 
 export type Condition =
   | {

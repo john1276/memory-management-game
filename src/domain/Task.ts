@@ -1,9 +1,8 @@
 export type TaskId = string
 
 export type TaskStatus =
-  | 'incoming'
-  | 'queued'
-  | 'active'
+  | 'waiting'
+  | 'processing'
   | 'completed'
 
 export interface TaskDefinition {
@@ -29,6 +28,6 @@ export function createTaskRuntime(
     definition,
     remainingDuration: definition.duration,
     waitingTicks: 0,
-    status: 'incoming',
+    status: 'waiting',
   }
 }

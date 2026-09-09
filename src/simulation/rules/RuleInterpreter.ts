@@ -167,7 +167,7 @@ function executeAction(
 ): RuleExecutionResult {
   switch (action.type) {
     case 'allocate': {
-      if (task.status !== 'incoming') {
+      if (task.status !== 'waiting') {
         return {
           ok: false,
           ruleId,
@@ -197,7 +197,8 @@ function executeAction(
         }
       }
 
-      task.status = 'active'
+      task.status = 'processing'
+      state.queue.remove(event.taskId)
 
       return {
         ok: true,
