@@ -21,7 +21,8 @@ MVP 先採固定 Workload、固定規則環境與單一 Prototype 情境。
 4. 系統依 Tick 自動運作：
    - Processing Task 推進並在完成時釋放 Memory。
    - Workload 生成新的 Task，加入 Waiting List。
-   - Rule Interpreter 依序掃描 Waiting Task，嘗試依玩家 Rule 配置有限 Memory。
+   - Rule Interpreter 依序掃描 Waiting Task，依玩家 Rule 判斷目前應執行的 Action。
+   - Action Executor 將 Action 套用到目前 Simulation State；若 Action 在當前狀態下無法執行，則產生 Runtime Failure。
 5. 執行期間玩家不能修改 Rule。
 6. 若發生非法操作、無法完成的 Action 或其他 Runtime Failure，立即 Failure 並停機。
 7. 若玩家想修改 Rule，必須 Stop / Reset，再重新執行。
@@ -74,7 +75,7 @@ Task 的生命週期與 Memory Residency 應保持分離。
 
 > Task 的 Status 不應永久等同於「是否 Resident in Physical Memory」。
 
-MVP 可使用較中性的 Runtime Lifecycle，例如：
+MVP 使用較中性的 Runtime Lifecycle：
 
 ```text
 Waiting
@@ -376,7 +377,7 @@ MVP 的主要 Puzzle 應聚焦在：
 
 ### 7.3 Waiting Metrics
 
-MVP 可追蹤：
+MVP 追蹤：
 
 ```text
 waitingTicks
@@ -398,6 +399,8 @@ WaitingList
 
 避免名稱讓人誤以為必須採嚴格 FIFO dequeue。
 
+此改名不應阻擋下一階段 Action Architecture 開發。
+
 ---
 
 ## 8. Rule System
@@ -410,11 +413,13 @@ MVP 不使用文字 DSL。
 
 部分合法數值與參數允許玩家自行輸入。
 
+Rule Editor 是玩家操作的 UI；底層保存的是結構化的 Rule Program。MVP 由 Rule Editor 直接建立 Rule Program，不需要 Parser。
+
 Rule 大致分為：
 
 ### 8.1 Trigger / Structural Blocks
 
-Rule Runtime 的主要 MVP Context 應逐步從單次 `Request Arrives`，調整為：
+Rule Runtime 的主要 MVP Context 為：
 
 ```text
 WHEN [Task Waiting]
@@ -424,7 +429,7 @@ WHEN [Task Waiting]
 
 > 每個 Rule Phase 對 Waiting List 中的 Task 依序建立一次 Rule Execution Context。
 
-`Request Arrives` 仍可保留為未來 Event / Trigger，但不應成為唯一能處理 Task 的入口。
+`Request Arrives` 可保留為未來 Event / Trigger，但不應成為唯一能處理 Task 的入口。
 
 這樣 Waiting Task 才能在後續 Tick 被再次評估，而不是只在出生當下得到一次機會。
 
@@ -464,6 +469,8 @@ Compact
 ...
 ```
 
+Action 是 Rule Program 要求 Runtime 執行的操作。
+
 `Enqueue` 不再是核心必要 Action，因為新生成 Task 會自然進入 Waiting List。
 
 若未來需要顯式 Waiting / Defer 行為，再依 Prototype 需求加入。
@@ -478,7 +485,7 @@ Rule System 採用：
 
 概念上接近一個簡化的直譯器。
 
-Rule Editor 可以保證玩家建立的是結構合法、參數合法的 Rule Program；但不保證該 Program 在實際 Workload 上一定能成功執行。
+Rule Editor / Program Validator 可以保證玩家建立的是結構合法、參數合法的 Rule Program；但不保證該 Program 在實際 Workload 上一定能成功執行。
 
 ### 9.1 Event / Rule Order
 
@@ -552,21 +559,20 @@ Branch 執行完成後，回到上一層並繼續下一個 Statement。
 
 ### 9.4 Action Execution
 
-Action 在實際執行時立即作用於 Simulation State。
+Rule Interpreter 負責 WHEN / IF / ELSE 與 Statement 的執行順序。
 
-例如：
+當 Interpreter 執行到 Action 時，由 Action Executor 負責該 Action 的 Runtime 行為，例如：
 
 ```text
 Allocate
 Split
 Compact
-Enqueue
 ...
 ```
 
-Action 成功後產生的 Memory / Task / Queue 狀態改變，會立即成為後續 Statement 所看到的狀態。
+Action 成功後產生的 Memory / Task / Waiting List 狀態改變，會立即成為後續 Statement 所看到的狀態。
 
-系統不進行預先的全域 Conflict Resolution，也不預先保證整套 Rule 最終一定能跑完。
+因此 Action Executor 與 Rule Interpreter 分開責任，但仍採逐步執行，不先批次收集所有 Action。
 
 ### 9.5 Rule Validity vs Runtime Failure
 
@@ -643,7 +649,7 @@ Stop / Reset
 
 MVP 採嚴格 Failure Model。
 
-任何無法處理或衝突的嘗試都視為 Failure。
+任何 Runtime Action 無法完成或 Runtime State 進入不可接受狀態時，都可視為 Failure。
 
 例如：
 
@@ -661,7 +667,7 @@ MVP 採嚴格 Failure Model。
 或：
 
 ```text
-多條 Rule 對同一資源產生互斥 Action
+前一 Action 已改變 Runtime State，導致後續 Action 無法執行
 ```
 
 結果皆為：
@@ -670,6 +676,8 @@ MVP 採嚴格 Failure Model。
 FAILURE
 → SYSTEM HALT
 ```
+
+Program 結構錯誤則應在 Run 前由 Program Validator 阻止，不屬於遊戲 Runtime Failure。
 
 Failure 不只是懲罰，也是 Debug Feedback。
 
@@ -707,6 +715,8 @@ Split：
 ```text
 AAA + AAA
 ```
+
+Split 後仍視為同一個 Task，只是該 Task 可以使用多個 Memory Fragment；不建立 `A1`、`A2` 等獨立 Task。
 
 整個 Split Operation：
 
@@ -775,12 +785,13 @@ Compaction Cost = 2 Ticks
 
 MVP 勝利條件保持簡單：
 
-> 完整跑完整個固定 Workload，且 Failure = 0。
+> 完整跑完整個固定 Workload，所有必要 Task 完成，且 Failure = 0。
 
 例如：
 
 ```text
 Workload Complete
+Tasks Complete
 Failures: 0
 
 → SUCCESS
@@ -896,6 +907,8 @@ Runtime Waiting List
 
 避免玩家將「尚未生成的 Task」與「已生成但尚未取得 Memory 的 Task」混為一談。
 
+Rule Editor 只負責建立 / 編輯 Rule Program，不應直接包含 Simulation Runtime Logic。
+
 此 Layout 先作為 Prototype 基準。
 
 若實際使用後有問題，再調整。
@@ -922,6 +935,25 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 
 > 「這個玩法值得繼續做嗎？」
 
+### 18.4 Runtime Responsibility Boundary
+
+目前責任先切為：
+
+```text
+Rule Editor
+→ Rule Program
+→ Program Validator
+→ Rule Interpreter
+→ Action Executor
+→ Simulation State
+```
+
+Simulation Engine 負責 Tick 與世界狀態的推進。
+
+Rule Interpreter 負責控制流程；Action Executor 負責 Action 的 Runtime 行為。Simulation Core 不依賴 Rule Editor 的 UI 表示。
+
+此階段先保持簡單，不因責任切分而提前建立大量 Class / Factory / Registry。
+
 ---
 
 ## 19. Out of Scope / Future Work
@@ -935,6 +967,7 @@ MVP 最重要的產出不是完整 OS Simulation，而是回答：
 - 更多 IF Conditions
 - 更多 Action
 - TRY / Runtime Failure Handling Blocks
+- Text DSL / Lexer / Parser
 - Paging / Page Replacement
 - Virtual Memory
 - Virtual Address Space / Page Table / Frame Mapping
@@ -983,6 +1016,8 @@ Task = 永久等同一整段 Contiguous Physical Memory
 
 寫死成不可替換的架構。
 
+若未來加入文字 DSL，Parser 應輸出與 Rule Editor 相同的 Rule Program，不改變後面的 Runtime。
+
 以上 Future Work 均不應阻擋 MVP 完成。
 
 ---
@@ -1003,11 +1038,15 @@ Task = 永久等同一整段 Contiguous Physical Memory
 - Split Penalty
 - Compaction Score Cost
 - Dummy Compaction Algorithm 的精確移動順序
+- Split Action 的第一版參數形式（固定切半 / 指定 Split Point / 其他最小形式）
+- Fragment Runtime Data Structure 的精確 TypeScript 表示
+- Runtime Operation 是否允許並行，或 MVP 僅允許單一 Active Operation
 - MVP 第一版實際開放哪些 WHEN / IF / Action Blocks
 - TaskWaiting Trigger 的最終命名與 UI 呈現方式
+- 是否將 `TaskQueue` 重命名為 `WaitingList`
 - UI 細節與動畫速度
 
-這些屬於 Content / Balance / UX Tuning，不應阻擋核心 Engine 開發。
+這些屬於 Content / Balance / UX / Implementation Tuning，不應阻擋核心架構前進。
 
 ---
 
@@ -1028,9 +1067,11 @@ Task = 永久等同一整段 Contiguous Physical Memory
 - [x] Structured / Block-based Rule Editor Direction
 - [x] WHEN / IF / ELSE / Action Concept
 - [x] Ordered / Stateful / Depth-First Rule Execution Semantics
+- [x] Rule Interpreter / Action Executor Responsibility Boundary
 - [x] Runtime Failure → Halt
 - [x] No Rollback Semantics
 - [x] No Rule Editing During Run
+- [x] Split remains one Task after fragmentation
 - [x] Split Design
 - [x] Split Cost = 1 Tick
 - [x] Dummy Compaction Design
@@ -1040,6 +1081,7 @@ Task = 永久等同一整段 Contiguous Physical Memory
 - [x] Score Philosophy
 - [x] Prototype UI Direction
 - [x] Prototype Workload Design Philosophy
+- [x] Parser / Text DSL remains Future Work
 - [x] Paging / Virtual Memory Remain Future Layers Above Current Physical-Memory-like MVP
 
 ### 21.2 Engineering Implemented / Tested
@@ -1058,19 +1100,25 @@ Task = 永久等同一整段 Contiguous Physical Memory
 - [x] Integration Tests for Rule-driven Allocation
 - [x] Integration Tests for Runtime Failure → Halt
 - [x] Integration Tests for No Rollback
+- [x] Runtime Task Lifecycle uses `waiting → processing → completed`
+- [x] Workload Arrival → Waiting List
+- [x] Rule Phase scans Waiting Tasks in Arrival Order
+- [x] Unhandled Waiting Task remains Waiting for later Tick
+- [x] Waiting Task can be re-evaluated on later Tick
+- [x] Later Waiting Task may be processed while earlier Task remains Waiting
+- [x] `waitingTicks`
+- [x] `TaskWaiting` Rule Context / Trigger
 
 ### 21.3 Next Engineering Work
 
-- [ ] Refactor Runtime Task Lifecycle away from persistent `incoming`
-- [ ] Introduce Waiting List semantics in SimulationState
-- [ ] Workload Arrival → Waiting List
-- [ ] Rule Phase scans Waiting Tasks in Arrival Order
-- [ ] Unhandled Waiting Task remains Waiting instead of disappearing / immediately failing
-- [ ] Track `waitingTicks`
-- [ ] Decide whether to rename TaskQueue → WaitingList
-- [ ] Refactor main Rule Context from RequestArrived-only to TaskWaiting / equivalent
+- [ ] Extract Allocate Runtime Logic from `RuleInterpreter` into `ActionExecutor`
+- [ ] Keep Ordered / Stateful / DFS semantics after the refactor
+- [ ] Add minimal Program Validator boundary
+- [ ] Implement Runtime Operation support for Tick-cost Actions
 - [ ] Implement Split Runtime Action
+- [ ] Implement fragmented allocation for one Task
 - [ ] Implement Compaction Runtime Action
+- [ ] Decide whether to rename TaskQueue → WaitingList
 - [ ] Functional Rule Editor UI
 - [ ] First Prototype Workload Data
 - [ ] Score Numbers / Balancing
@@ -1088,47 +1136,39 @@ Base Domain Objects
 → Rule AST / Program Model
 → Ordered / Stateful / DFS Interpreter
 → Allocate Action
-→ SimulationEngine Integration
+→ Waiting Task Lifecycle
+→ Waiting List Re-evaluation
 → Runtime Failure / No Rollback Tests
 ```
 
-下一步應先完成：
-
-> Task Lifecycle + Waiting List Semantics
-
-而不是立刻擴張更多 Rule Primitive。
+下一步先整理 Runtime 的責任邊界，而不是直接增加更多 Rule Primitive。
 
 建議依序處理：
 
-1. 調整 Task Runtime Lifecycle：
-   - 移除 `incoming` 作為持續狀態的依賴。
-   - 使用較中性的 `waiting → processing → completed`。
-   - Memory Residency 由 Memory / Allocation State 描述。
-2. 將 Runtime Queue 語意重構為 Waiting List：
-   - 保留 Arrival Order。
-   - 不採嚴格 Head-of-Line Blocking。
-3. 修改 Workload Arrival：
-   - 建立 Runtime Task。
-   - Task 直接加入 Waiting List。
-4. 修改 Rule Phase：
-   - 每 Tick 依序掃描 Waiting Tasks。
-   - 每個 Waiting Task 建立 `TaskWaiting`（或等價）Rule Context。
-   - Rule 成功 Allocate 後，Task 離開 Waiting List並開始 Processing。
-   - 沒有被處理的 Task 保留，下一 Tick 再次被掃描。
-5. 加入 `waitingTicks` 更新與測試。
-6. 補 integration tests：
-   - A 無法處理但仍 Waiting。
-   - B 可以在 A 仍 Waiting 時被 Allocate。
-   - 前一 Task 的 Action 會影響後一 Task看到的最新 Memory State。
-   - Waiting Task 下一 Tick 能再次被 Rule 評估。
-7. Waiting Lifecycle 穩定後，再加入：
-   - Split
-   - Compaction
-8. 接著設計第一個 Prototype Workload 與 Score / Balance 數值。
-9. 最後將真正的 Simulation State 接回 React UI，進行第一輪可玩 Prototype 測試。
+1. 抽出 `ActionExecutor`：
+   - Rule Interpreter 保留 WHEN / IF / ELSE 與 Statement Traversal。
+   - Allocate 的 Runtime State 修改移到 Action Executor。
+   - Action 成功後的 State 仍立即影響後續 Condition。
+2. 加入最小 Program Validator：
+   - Run 前只檢查 Rule Program 的結構與參數形式是否合法。
+   - Runtime 是否能成功仍由實際執行決定。
+3. 建立耗時 Action 共用的 Runtime Operation 基礎。
+4. 實作 Split：
+   - 同一 Task 可使用多個 Fragment。
+   - Split Cost = 1 Tick。
+5. 實作 Compaction：
+   - Cost = moved Task count。
+6. 底層穩定後，再接 First Prototype Workload、Rule Editor 與 Score。
 
-此階段最重要的目標是驗證：
+Parser / Text DSL 不屬於目前 MVP；未來若加入，只需產生同一套 Rule Program。
 
-> 「Workload 產生 Memory Requests → Waiting List 保存未處理 Task → 玩家 Rule 反覆掃描並配置有限 Memory → Task 完成後釋放 → 成功或 Runtime Failure」
+此階段最重要的目標是讓：
 
-這條 Pipeline 是否清楚、可 Debug，並且真的把遊戲焦點放在有限 Memory 的使用效率上。
+```text
+Rule Program
+→ Rule Interpreter
+→ Action Executor
+→ Simulation State
+```
+
+與 Simulation Engine 的 Tick 推進責任保持清楚，方便後續加入 Split 與 Compaction。
