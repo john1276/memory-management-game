@@ -18,6 +18,10 @@ import type {
   Statement,
 } from './Rule'
 
+import {
+  executeAction,
+} from '../actions/ActionExecutor'
+
 export type RuleExecutionResult =
   | {
       ok: true
@@ -109,14 +113,18 @@ function executeStatements(
     if (statement.type === 'action') {
       const result = executeAction(
         statement.action,
-        ruleId,
-        event,
         state,
         task
       )
 
       if (!result.ok) {
-        return result
+        return {
+          ok: false,
+          ruleId,
+          taskId: event.taskId,
+          action: result.action,
+          reason: result.reason,
+        }
       }
     }
   }
@@ -155,54 +163,5 @@ function evaluateCondition(
         state.memory.getFreeSpace() >=
         condition.value
       )
-  }
-}
-
-function executeAction(
-  action: Action,
-  ruleId: string,
-  event: SimulationEvent,
-  state: SimulationState,
-  task: TaskRuntime
-): RuleExecutionResult {
-  switch (action.type) {
-    case 'allocate': {
-      if (task.status !== 'waiting') {
-        return {
-          ok: false,
-          ruleId,
-          taskId: event.taskId,
-          action: 'allocate',
-          reason:
-            `Task ${event.taskId} cannot be allocated ` +
-            `while status is ${task.status}`,
-        }
-      }
-
-      const success =
-        state.memory.allocateContiguous(
-          event.taskId,
-          task.definition.size
-        )
-
-      if (!success) {
-        return {
-          ok: false,
-          ruleId,
-          taskId: event.taskId,
-          action: 'allocate',
-          reason:
-            `Not enough contiguous memory ` +
-            `for Task ${event.taskId}`,
-        }
-      }
-
-      task.status = 'processing'
-      state.queue.remove(event.taskId)
-
-      return {
-        ok: true,
-      }
-    }
   }
 }
