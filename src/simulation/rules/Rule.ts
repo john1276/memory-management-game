@@ -1,3 +1,4 @@
+import type { Expression } from '../expressions/Expression'
 export type Trigger =
   | 'requestArrived'
   | 'taskWaiting'
@@ -23,6 +24,10 @@ export type Condition =
 export type Action =
   | {
       type: 'allocate'
+    }
+  | {
+      type: 'split'
+      fragments: readonly Expression[]
     }
 
 export type Statement =
