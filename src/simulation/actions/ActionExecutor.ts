@@ -58,8 +58,8 @@ export function executeAction(
           ok: false,
           action: 'allocate',
           reason:
-            `Not enough contiguous memory ` +
-            `for Task ${taskId}`,
+            `Unable to allocate memory for Task ${taskId} ` +
+            `with fragment shape [${task.fragmentSizes.join(', ')}]`,
         }
       }
 

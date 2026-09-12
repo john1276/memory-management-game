@@ -1,12 +1,12 @@
 # MVP Specification
 
-> Version: v1.1
+> Version: v1.2
 >
-> Revision date: 2026-09-11
+> Revision date: 2026-09-12
 >
 > Base: `simulation-core/MVP.md`
 >
-> 本次修訂重點：更新 Rule Runtime / Tick 語意、加入 Expression Runtime、重新定義 Split、補上 GameController 執行控制；並確認 Runtime 採單一 Execution Pivot + 巢狀 Frame Stack，第一版 Split 不開放 `Memory.*` Reference。
+> 本次修訂重點：確認 Split / Fragmented Allocation 已完成，補上 Runtime Diagnostics 與 Player-facing Feedback 的責任分離，更新目前 Engineering Roadmap，並將下一階段鎖定為 Compaction Runtime Action。
 
 ---
 
@@ -605,6 +605,61 @@ Log / Debug View 應能指出：
 - 目前 Execution Node / Expression（若可取得）
 - Failure 原因
 
+### 12.1 Diagnostics vs Player-facing Feedback
+
+Runtime Failure 的完整診斷資訊與玩家實際看到的 Failure Feedback 應保持分離。
+
+Simulation / Rule Runtime 應盡可能保留足以除錯的資訊，例如：
+
+```text
+Tick
+Task
+Rule
+Action
+Execution Node / Expression
+Runtime values relevant to the failure
+Failure reason
+```
+
+例如 Allocation Failure 可以保留：
+
+```text
+Task A
+Action: Allocate
+Fragment Shape: [2, 2]
+Reason: Unable to allocate memory
+```
+
+這些資訊屬於 Runtime Diagnostic，不代表正常遊戲 UI 必須全部揭露。
+
+Player-facing Feedback 可依 Gameplay / Tutorial / Difficulty 決定資訊量，例如：
+
+```text
+Detailed:
+Task A allocation failed with fragment shape [2, 2].
+
+Normal:
+Allocation failed for Task A.
+
+Minimal:
+Allocate(A) → FAILED
+```
+
+核心原則：
+
+> Engine should preserve information; UI decides how much information the player receives.
+
+不得為了避免玩家透過 DevTools、Debug View 或其他方式取得額外資訊，而刻意降低 Runtime Diagnostic 的品質。
+
+MVP 優先保證：
+
+- Runtime 可測試。
+- Failure 可除錯。
+- Diagnostic 足以定位問題。
+- 玩家正常遊玩時不會被自動提供完整解法。
+
+Player-facing wording 與資訊揭露程度屬於 Gameplay / UX Layer，而不是 Simulation Engine Responsibility。
+
 ---
 
 ## 13. Split
@@ -867,13 +922,29 @@ Prototype 的目的不是設計「完美第一關」，而是測試：
 │ Waiting      │                    │              │
 │ [A][B][C]    │                    │              │
 ├──────────────┴────────────────────┴──────────────┤
-│ Run / Pause / Step / Tick / Log / Failure / Score│
+│ Run / Pause / Step / Tick / Event Log / Score   │
+│ Player-facing Failure Feedback                   │
 └─────────────────────────────────────────────────┘
 ```
 
 UI 應明確區分 Upcoming / Workload Preview 與 Runtime Waiting List。
 
 未來 Debug View 可顯示目前 Execution Cursor 所在的 Rule / Expression Node，但第一版 UI 的詳細呈現方式尚未鎖死。
+
+正常 Player UI 與完整 Runtime Debug View 應視為不同資訊層。
+
+Player UI 只需要顯示設計上允許玩家取得的 Failure Feedback。
+
+完整 Runtime Diagnostic 可供：
+
+- Development / Testing
+- Automated Tests
+- Debug Mode
+- Future Execution Trace / Debugger
+
+使用。
+
+第一版不提供玩家可直接開啟的完整 Debug View。
 
 ---
 
@@ -926,7 +997,37 @@ Tick scheduling / playback speed
 
 Simulation Engine 不應依賴 UI 的 Pause / Resume 狀態。
 
-### 19.5 No Compiler Yet
+### 19.5 Diagnostics Are Not UI Copy
+
+Simulation Engine、Rule Runtime、Expression Runtime 與 Action Executor 應產生足夠完整的 Diagnostic Information。
+
+Diagnostic Information 的主要目的為：
+
+- Runtime correctness
+- Testing
+- Debugging
+- Failure tracing
+- Future tooling
+
+它不應直接等同於玩家 UI 文案。
+
+概念上：
+
+```text
+Runtime Failure
+      ↓
+Full Diagnostic Information
+      ↓
+Game Controller / Presentation Layer
+      ↓
+Player-facing Feedback
+```
+
+Game Controller / UI 可以選擇隱藏、簡化或重新表達 Diagnostic Information，而不修改底層 Runtime Failure 本身。
+
+MVP 不嘗試透過刪除 Diagnostic Information 來防止玩家使用 DevTools 或其他非正常遊玩方式取得額外資訊。
+
+### 19.6 No Compiler Yet
 
 MVP 採可暫停的 AST Interpreter / Abstract Machine。
 
@@ -1021,6 +1122,7 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - 是否將 `TaskQueue` 重命名為 `WaitingList`。
 - Debug View 要顯示到哪個 AST / Expression 粒度。
 - UI 細節與動畫速度。
+- 正常 Player-facing Failure Feedback 應揭露多少 Runtime Diagnostic Information。
 
 這些屬於 Content / Balance / UX / Implementation Tuning。MVP 的核心執行模型已確認為 single Execution Pivot + nested Frame Stack；未來真正的多 Context scheduling 不阻擋目前 Split / Expression Runtime 實作。
 
@@ -1046,6 +1148,7 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - [x] Cost-bearing computation / Function / Action execution
 - [x] Rule Interpreter / Action Executor Responsibility Boundary
 - [x] Runtime Failure → Halt
+- [x] Runtime Diagnostics and Player-facing Feedback are separate concerns
 - [x] No Rollback for committed Simulation State
 - [x] No Rule Editing During Run
 - [x] Expression AST / RuntimeValue separation direction
@@ -1095,7 +1198,7 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - [x] `waitingTicks`
 - [x] `TaskWaiting` Rule Context / Trigger
 
-### 22.3 Next Engineering Work
+### 22.3 Engineering Roadmap
 
 - [x] Define minimal Expression AST / RuntimeValue types for Split.
 - [x] Define Evaluation Context and Split Evaluation Context.
@@ -1107,8 +1210,8 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - [x] Implement SplitPlan resolution / validation.
 - [x] Implement Split Runtime work and fragmented allocation shape.
 - [x] Update Allocate to support fragmented Task allocation.
-- [ ] Implement Game Controller Run / Pause / Resume / Step when UI/runtime integration needs it.
 - [ ] Implement Compaction Runtime Action.
+- [ ] Implement Game Controller Run / Pause / Resume / Step when UI/runtime integration needs it.
 - [ ] Functional Rule Editor UI.
 - [ ] First Prototype Workload Data.
 - [ ] Score Numbers / Balancing.
@@ -1128,51 +1231,82 @@ Base Domain Objects
 → Allocate Action
 → Waiting Task Lifecycle
 → ActionExecutor extraction
+→ Expression Runtime
+→ Resumable single-pivot Rule Runtime
+→ SplitPlan / Split Action
+→ Fragmented Task Allocation
+→ Program Validator boundary
+→ End-to-end Split integration
 ```
 
 下一階段為：
 
 ```text
-feat/split-action
+feat/compaction-action
 ```
 
-但在直接實作 Split 前，先完成其所依賴的最小 Runtime 基礎：
+目標是實作 MVP 第二個具有多 Tick Runtime Work 的 Memory Action：
 
-1. 定義 Expression AST / RuntimeValue。
-2. 定義 `Task.Size`、`Split.Remaining` 與 Math Function 的最小 Evaluation Context。
-3. 定義 single-pivot Execution Cursor / Frame，使 AST 執行可以在 cost-bearing node 後 suspend / resume，並支援巢狀 Function / Expression / Action 的 jump / return。
-4. 定義 Waiting Task 依 Arrival Order 交給目前唯一 Execution Pivot 的 MVP handoff 流程。
-5. 以 TDD 實作 SplitPlan：
-   - left-to-right fragment resolution
-   - type / integer / positive / remaining validation
-   - final remaining = 0
-6. 實作 Split 的 Runtime Cost：
+1. 定義 Compaction Action AST。
+2. 定義 deterministic Dummy Compaction Algorithm。
+3. 計算實際需要移動的 Task。
+4. Compaction Cost = moved Task count。
+5. 將 Compaction 實作為可 suspend / resume 的 ActionExecution。
+6. 確保每個 cost-bearing movement 每 Tick 最多推進一步。
+7. 保持 Task identity、allocation state 與 Memory state 一致。
+8. 補上 Unit / Integration tests，驗證 Compaction 能解決 External Fragmentation。
+
+此階段的另一個重要目的，是驗證目前建立的：
 
 ```text
-Expression Execution Cost
-+
-(fragmentCount - 1)
+RuleExecutionSession
+→ ActionExecution
+→ resumable runtime work
+→ commit Simulation State
 ```
 
-7. Split 完成後只改變 Task allocation shape；Task 仍 Waiting。
-8. 再擴充 Allocate，使同一 Task 可以依 fragment shape 取得多個 Memory Region。
+是否能被 Split 之外的 Action 重用，而不是成為只服務 Split 的特殊架構。
 
-此階段仍不需要 Parser、Text DSL、Compiler 或 Bytecode VM。
+Compaction 完成後，再進入：
 
-核心目標是先證明：
+```text
+GameController
+→ Prototype Workload
+→ Functional Rule Editor UI
+→ Playable Prototype
+```
 
-> 玩家可以寫出可觀察、可逐步執行、具有時間成本 Trade-off 的 Memory Management Rule，並透過 Split 解決 Fragmentation 問題。
+GameController 將負責：
+
+```text
+Run
+Pause
+Resume
+Step
+Reset
+```
+
+並作為 Program Validator 與 Simulation Engine 之間的上層執行邊界。
+
+目前仍不需要 Parser、Text DSL、Compiler、Bytecode VM 或多 Execution Context Scheduler。
+
+下一階段的核心目標是：
+
+> 驗證目前的 resumable Action Runtime 能支援第二種真正不同的 Memory 操作，並完成 MVP 主要 Memory gameplay primitives。
 
 
 ---
 
-## 24. v1.1 Revision Notes
+## 24. v1.2 Revision Notes
 
-本版相對 2026-09-11 初版修訂：
+本版相對 v1.1 的主要修訂：
 
-- 確認 MVP Runtime 採單一 `Execution Pivot`。
-- 巢狀 Function / Expression / Action 透過 Frame Stack 保存 return position；不代表多個 Context 同時執行。
-- `Memory.*` 第一版 Split 不開放，但 Reference / namespace 架構保留擴充能力。
-- Waiting Task 預設依 Arrival Order 選擇下一個候選 Task，再由玩家 Rule 決定處理方式。
-- 多 Task / 多 Execution Context scheduling 移至 Future Work，不再阻擋 `feat/split-action`。
-- `break` 等控制流程跳轉保留為 Future Work。
+- 確認 `feat/split-action` 所涵蓋的 Expression Runtime、Split Runtime、Fragmented Allocation、Program Validator 與 End-to-end Integration 已完成。
+- Runtime Failure 的完整 Diagnostic Information 與 Player-facing Feedback 正式分離。
+- Engine / Runtime 應保留足夠完整的除錯資訊；UI 決定正常玩家實際看到多少資訊。
+- 不為了阻止玩家使用 DevTools 而降低 Runtime Diagnostic 品質。
+- 第一版正常 Player UI 不直接提供完整 Runtime Debug View。
+- `Engineering Roadmap` 更新為先完成 Compaction Runtime Action，再進入 GameController / Prototype Workload / Rule Editor UI。
+- 下一個建議開發分支更新為 `feat/compaction-action`。
+- Parser、Text DSL、Compiler、Bytecode VM、多 Execution Context Scheduler 仍維持 Future Work。
+
