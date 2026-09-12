@@ -16,7 +16,11 @@ import type {
 } from './SimulationState'
 
 import type { RuleProgram } from './rules/Rule'
-import { executeRuleProgram } from './rules/RuleInterpreter'
+import {
+  advanceRuleExecutionSession,
+  createRuleExecutionSession,
+  type RuleExecutionSession,
+} from './rules/RuleExecutionSession'
 import type { SimulationEvent } from './SimulationEvent'
 
 export class SimulationEngine {
@@ -24,6 +28,7 @@ export class SimulationEngine {
 
   private readonly ruleProgram: RuleProgram
 
+  private activeRuleSession: RuleExecutionSession | null = null
   constructor(
     workload: Workload,
     memoryCapacity: number,
@@ -145,39 +150,126 @@ export class SimulationEngine {
   }
 
   private processWaitingTasks(): void {
-    const waitingTaskIds =
-      this.state.queue.toArray()
+  const waitingTaskIds =
+    this.state.queue.toArray()
 
-    for (const taskId of waitingTaskIds) {
-      const task = this.state.tasks.get(taskId)
+  /*
+   * If a session survived from a previous tick,
+   * tasks before that pivot were already scanned
+   * during the earlier Rule phase.
+   *
+   * Once the pivot completes at zero cost, resume
+   * scanning AFTER that task.
+   */
+  const activeTaskId =
+    this.activeRuleSession?.taskId
 
-      if (!task || task.status !== 'waiting') {
-        continue
-      }
+  let candidateIndex = 0
 
-      const event: SimulationEvent = {
-        type: 'taskWaiting',
-        taskId,
-      }
+  if (activeTaskId) {
+    const activeIndex =
+      waitingTaskIds.indexOf(activeTaskId)
 
-      const result = executeRuleProgram(
-        this.ruleProgram,
-        event,
-        this.state
-      )
+    if (activeIndex >= 0) {
+      candidateIndex = activeIndex + 1
+    }
+  }
 
-      if (!result.ok) {
+  while (this.state.status === 'running') {
+    /*
+     * Exactly one active execution pivot exists.
+     */
+    if (this.activeRuleSession) {
+      const result =
+        advanceRuleExecutionSession(
+          this.activeRuleSession,
+          this.state,
+        )
+
+      if (result.status === 'failure') {
+        this.activeRuleSession = null
+
         this.halt(
           result.reason,
           result.taskId,
           result.ruleId,
-          result.action
+          result.action,
         )
 
         return
       }
+
+      /*
+       * One cost-bearing rule step has consumed
+       * this Simulation tick's Rule budget.
+       */
+      if (result.status === 'progress') {
+        return
+      }
+
+      /*
+       * Session finished.
+       */
+      this.activeRuleSession = null
+
+      if (result.consumedTick) {
+        return
+      }
+
+      /*
+       * Zero-cost completion:
+       * keep scanning waiting candidates during
+       * this same Rule phase.
+       */
+      continue
     }
+
+    if (candidateIndex >= waitingTaskIds.length) {
+      return
+    }
+
+    const taskId =
+      waitingTaskIds[candidateIndex]
+
+    candidateIndex += 1
+
+    const task = this.state.tasks.get(taskId)
+
+    if (!task || task.status !== 'waiting') {
+      continue
+    }
+
+    const event: SimulationEvent = {
+      type: 'taskWaiting',
+      taskId,
+    }
+
+    const session =
+      createRuleExecutionSession(
+        this.ruleProgram,
+        event,
+        this.state,
+      )
+
+    if ('status' in session) {
+      this.halt(
+        session.reason,
+        session.taskId,
+        session.ruleId,
+        session.action,
+      )
+
+      return
+    }
+
+    this.activeRuleSession = session
+
+    /*
+     * Loop immediately so the newly created
+     * session advances in this same Rule phase.
+     */
   }
+}
 
   private updateWaitingMetrics(): void {
     for (const taskId of this.state.queue.toArray()) {

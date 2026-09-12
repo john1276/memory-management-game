@@ -641,13 +641,19 @@ describe('SimulationEngine', () => {
       rules
     )
 
-    engine.start()
-    engine.runTick()
 
     const state = engine.getState()
 
-    expect(state.status).toBe('halted')
-    expect(state.tick).toBe(0)
+    engine.start()
+
+    /*
+    * Tick 0:
+    * rule-1 Allocate consumes the Rule budget.
+    */
+    engine.runTick()
+
+    expect(state.status).toBe('running')
+    expect(state.tick).toBe(1)
 
     expect(
       state.memory.getCells()
@@ -663,8 +669,598 @@ describe('SimulationEngine', () => {
 
     expect(state.queue.toArray()).toEqual([])
 
+    /*
+    * Tick 1:
+    *
+    * Resume the same RuleExecutionSession.
+    * rule-1 finishes at zero cost, then rule-2
+    * attempts another Allocate and fails because
+    * A is already processing.
+    */
+    engine.runTick()
+
+    expect(state.status).toBe('halted')
+
+    expect(state.tick).toBe(1)
+
     expect(state.failure?.ruleId).toBe(
       'rule-2'
     )
+
+    expect(state.failure?.action).toBe(
+      'allocate'
+    )
+
+    /*
+    * No rollback:
+    * rule-1's committed allocation remains.
+    */
+    expect(
+      state.memory.getCells()
+    ).toEqual([
+      'A', 'A', 'A',
+      null, null, null,
+      null, null,
+    ])
+
+    expect(
+      state.tasks.get('A')?.status
+    ).toBe('processing')
+
+    expect(state.queue.toArray()).toEqual([])
   })
+  it('lets a later waiting task consume the rule tick when an earlier task is unhandled', () => {
+  const taskTooLarge: TaskDefinition = {
+    id: 'A',
+    size: 3,
+    duration: 4,
+    splittable: false,
+  }
+
+  const taskThatFits: TaskDefinition = {
+    id: 'B',
+    size: 2,
+    duration: 4,
+    splittable: false,
+  }
+
+  const rules: RuleProgram = [
+    {
+      id: 'small-only',
+      trigger: 'taskWaiting',
+      body: [
+        {
+          type: 'if',
+          condition: {
+            type: 'taskSizeLessThanOrEqual',
+            value: 2,
+          },
+          then: [
+            {
+              type: 'action',
+              action: {
+                type: 'allocate',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    [
+      {
+        tick: 0,
+        task: taskTooLarge,
+      },
+      {
+        tick: 0,
+        task: taskThatFits,
+      },
+    ],
+    2,
+    rules,
+  )
+
+  engine.start()
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(state.tick).toBe(1)
+
+  expect(state.tasks.get('A')?.status).toBe(
+    'waiting',
+  )
+  expect(state.tasks.get('A')?.waitingTicks).toBe(1)
+
+  expect(state.tasks.get('B')?.status).toBe(
+    'processing',
+  )
+  expect(state.tasks.get('B')?.waitingTicks).toBe(0)
+
+  expect(state.queue.toArray()).toEqual(['A'])
+
+  expect(state.memory.getCells()).toEqual([
+    'B',
+    'B',
+  ])
+})
+  it('advances a Split action across simulation ticks', () => {
+  const task: TaskDefinition = {
+    id: 'A',
+    size: 7,
+    duration: 4,
+    splittable: true,
+  }
+
+  const rules: RuleProgram = [
+    {
+      id: 'split-then-allocate',
+      trigger: 'taskWaiting',
+
+      body: [
+        {
+          type: 'action',
+          action: {
+            type: 'split',
+            fragments: [
+              {
+                type: 'call',
+                namespace: 'math',
+                function: 'floor',
+                arguments: [
+                  {
+                    type: 'binary',
+                    operator: 'divide',
+                    left: {
+                      type: 'reference',
+                      namespace: 'task',
+                      member: 'size',
+                    },
+                    right: {
+                      type: 'literal',
+                      value: 2,
+                    },
+                  },
+                ],
+              },
+              {
+                type: 'reference',
+                namespace: 'split',
+                member: 'remaining',
+              },
+            ],
+          },
+        },
+
+        {
+          type: 'action',
+          action: {
+            type: 'allocate',
+          },
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    [
+      {
+        tick: 0,
+        task,
+      },
+    ],
+    8,
+    rules,
+  )
+
+  engine.start()
+
+  // Tick 1: division
+  engine.runTick()
+
+  expect(engine.getState().status).toBe('running')
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([7])
+  expect(
+    engine.getState().tasks.get('A')?.status,
+  ).toBe('waiting')
+
+  // Tick 2: Math.Floor
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([7])
+
+  // Tick 3: physical cut
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([7])
+
+  /*
+   * Tick 4:
+   *
+   * Split completes at zero cost,
+   * commits [3, 4],
+   * then Allocate consumes this rule tick.
+   */
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(state.tick).toBe(4)
+  expect(state.status).toBe('running')
+
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([3, 4])
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('processing')
+
+  expect(state.queue.toArray()).toEqual([])
+  expect(state.memory.getFreeSpace()).toBe(1)
+})
+  it('keeps the Rule pivot on a running Split before handing off to a later task', () => {
+  const splittingTask: TaskDefinition = {
+    id: 'A',
+    size: 7,
+    duration: 4,
+    splittable: true,
+  }
+
+  const laterTask: TaskDefinition = {
+    id: 'B',
+    size: 2,
+    duration: 4,
+    splittable: false,
+  }
+
+  const rules: RuleProgram = [
+    {
+      id: 'split-splittable',
+      trigger: 'taskWaiting',
+      body: [
+        {
+          type: 'if',
+          condition: {
+            type: 'taskSplittableIs',
+            value: true,
+          },
+          then: [
+            {
+              type: 'action',
+              action: {
+                type: 'split',
+                fragments: [
+                  {
+                    type: 'call',
+                    namespace: 'math',
+                    function: 'floor',
+                    arguments: [
+                      {
+                        type: 'binary',
+                        operator: 'divide',
+                        left: {
+                          type: 'reference',
+                          namespace: 'task',
+                          member: 'size',
+                        },
+                        right: {
+                          type: 'literal',
+                          value: 2,
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    type: 'reference',
+                    namespace: 'split',
+                    member: 'remaining',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    },
+
+    {
+      id: 'allocate-small',
+      trigger: 'taskWaiting',
+      body: [
+        {
+          type: 'if',
+          condition: {
+            type: 'taskSizeLessThanOrEqual',
+            value: 2,
+          },
+          then: [
+            {
+              type: 'action',
+              action: {
+                type: 'allocate',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    [
+      {
+        tick: 0,
+        task: splittingTask,
+      },
+      {
+        tick: 0,
+        task: laterTask,
+      },
+    ],
+    8,
+    rules,
+  )
+
+  engine.start()
+
+  // Tick 1: A division.
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([7])
+
+  expect(
+    engine.getState().tasks.get('B')?.status,
+  ).toBe('waiting')
+
+  expect(
+    engine.getState().memory.getFreeSpace(),
+  ).toBe(8)
+
+  // Tick 2: A Math.Floor.
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('B')?.status,
+  ).toBe('waiting')
+
+  expect(
+    engine.getState().memory.getFreeSpace(),
+  ).toBe(8)
+
+  // Tick 3: A physical cut.
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([7])
+
+  expect(
+    engine.getState().tasks.get('B')?.status,
+  ).toBe('waiting')
+
+  expect(
+    engine.getState().memory.getFreeSpace(),
+  ).toBe(8)
+
+  /*
+   * Tick 4:
+   *
+   * A's Split completes at zero cost and commits [3, 4].
+   * A has no later applicable Action, so its session ends.
+   *
+   * Only now may B receive the pivot and Allocate.
+   */
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([3, 4])
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('waiting')
+
+  expect(
+    state.tasks.get('B')?.status,
+  ).toBe('processing')
+
+  expect(state.queue.toArray()).toEqual(['A'])
+
+  expect(state.memory.getCells()).toEqual([
+    'B', 'B',
+    null, null, null,
+    null, null, null,
+  ])
+})
+  it('halts on an invalid Split without rolling back committed state', () => {
+  const task: TaskDefinition = {
+    id: 'A',
+    size: 7,
+    duration: 4,
+    splittable: true,
+  }
+
+  const rules: RuleProgram = [
+    {
+      id: 'rule-1',
+      trigger: 'taskWaiting',
+
+      body: [
+        {
+          type: 'action',
+          action: {
+            type: 'split',
+            fragments: [
+              {
+                type: 'literal',
+                value: 3,
+              },
+              {
+                type: 'reference',
+                namespace: 'split',
+                member: 'remaining',
+              },
+            ],
+          },
+        },
+      ],
+    },
+
+    {
+      id: 'rule-2',
+      trigger: 'taskWaiting',
+
+      body: [
+        {
+          type: 'action',
+          action: {
+            type: 'split',
+            fragments: [
+              {
+                type: 'call',
+                namespace: 'math',
+                function: 'floor',
+                arguments: [
+                  {
+                    type: 'binary',
+                    operator: 'divide',
+                    left: {
+                      type: 'reference',
+                      namespace: 'task',
+                      member: 'size',
+                    },
+                    right: {
+                      type: 'literal',
+                      value: 2,
+                    },
+                  },
+                ],
+              },
+
+              /*
+               * Invalid fragment.
+               */
+              {
+                type: 'literal',
+                value: 0,
+              },
+            ],
+          },
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    [
+      {
+        tick: 0,
+        task,
+      },
+    ],
+    8,
+    rules,
+  )
+
+  engine.start()
+
+  /*
+   * Tick 0:
+   * rule-1 physical cut.
+   */
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([7])
+
+  /*
+   * Tick 1:
+   *
+   * rule-1 completes at zero cost and commits [3,4].
+   * rule-2 then starts and consumes its division tick.
+   */
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([3, 4])
+
+  expect(engine.getState().status).toBe('running')
+
+  /*
+   * Tick 2:
+   * Math.Floor consumes one tick.
+   */
+  engine.runTick()
+
+  expect(
+    engine.getState().tasks.get('A')?.fragmentSizes,
+  ).toEqual([3, 4])
+
+  expect(engine.getState().status).toBe('running')
+
+  /*
+   * Tick 3:
+   *
+   * First fragment resolves to 3.
+   * Second fragment resolves to invalid 0.
+   * Failure itself costs 0 ticks and halts the Engine.
+   */
+  engine.runTick()
+
+  const state = engine.getState()
+
+  expect(state.status).toBe('halted')
+
+  /*
+   * runTick halts before its final tick++.
+   */
+  expect(state.tick).toBe(3)
+
+  expect(state.failure).toEqual({
+    tick: 3,
+    taskId: 'A',
+    ruleId: 'rule-2',
+    action: 'split',
+    reason:
+      'Task A split fragment must be a positive integer, got 0',
+  })
+
+  /*
+   * rule-1 was already committed.
+   * It must NOT be rolled back.
+   *
+   * rule-2 never completed, so it must NOT commit
+   * any new allocation shape either.
+   */
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([3, 4])
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('waiting')
+
+  expect(state.queue.toArray()).toEqual(['A'])
+
+  /*
+   * Split never allocates physical Memory.
+   */
+  expect(state.memory.getFreeSpace()).toBe(8)
+})
 })
