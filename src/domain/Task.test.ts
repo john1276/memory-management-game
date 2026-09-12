@@ -21,4 +21,16 @@ describe('TaskRuntime', () => {
     expect(runtime.remainingDuration).toBe(3)
     expect(runtime.waitingTicks).toBe(0)
   })
+  it('starts with one fragment covering the full task size', () => {
+    const definition: TaskDefinition = {
+      id: 'A',
+      size: 6,
+      duration: 3,
+      splittable: true,
+    }
+
+    const runtime = createTaskRuntime(definition)
+
+    expect(runtime.fragmentSizes).toEqual([6])
+  })
 })

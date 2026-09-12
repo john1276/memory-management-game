@@ -100,4 +100,120 @@ describe('Memory', () => {
       null, null, null, null,
     ])
   })
+  it('allocates fragments independently using first fit', () => {
+    const memory = new Memory(8)
+
+    memory.allocateContiguous('B', 2)
+    memory.allocateContiguous('X', 2)
+    memory.allocateContiguous('C', 2)
+
+    memory.release('X')
+
+    // [B][B][ ][ ][C][C][ ][ ]
+    expect(memory.getCells()).toEqual([
+      'B', 'B',
+      null, null,
+      'C', 'C',
+      null, null,
+    ])
+
+    const success = memory.allocateFragments(
+      'A',
+      [2, 2],
+    )
+
+    expect(success).toBe(true)
+
+    expect(memory.getCells()).toEqual([
+      'B', 'B',
+      'A', 'A',
+      'C', 'C',
+      'A', 'A',
+    ])
+  })
+  it('leaves memory unchanged when a later fragment cannot fit', () => {
+    const memory = new Memory(8)
+
+    memory.allocateContiguous('B', 2)
+    memory.allocateContiguous('X', 2)
+    memory.allocateContiguous('C', 3)
+    memory.release('X')
+
+    // [B][B][ ][ ][C][C][C][ ]
+    const before = memory.getCells()
+
+    const success = memory.allocateFragments(
+      'A',
+      [2, 2],
+    )
+
+    expect(success).toBe(false)
+
+    expect(memory.getCells()).toEqual(before)
+  })
+  it('rejects an empty fragment list', () => {
+    const memory = new Memory(8)
+
+    const before = memory.getCells()
+
+    const success = memory.allocateFragments(
+      'A',
+      [],
+    )
+
+    expect(success).toBe(false)
+    expect(memory.getCells()).toEqual(before)
+  })
+  it.each([
+    { fragmentSizes: [0] },
+    { fragmentSizes: [-1] },
+    { fragmentSizes: [2.5] },
+    { fragmentSizes: [Number.NaN] },
+    { fragmentSizes: [Number.POSITIVE_INFINITY] },
+  ])(
+    'rejects invalid fragment sizes',
+    ({ fragmentSizes }) => {
+      const memory = new Memory(8)
+
+      const before = memory.getCells()
+
+      const success = memory.allocateFragments(
+        'A',
+        fragmentSizes,
+      )
+
+      expect(success).toBe(false)
+      expect(memory.getCells()).toEqual(before)
+    },
+  )
+  it('releases every fragment owned by a task', () => {
+    const memory = new Memory(8)
+
+    memory.allocateContiguous('B', 2)
+    memory.allocateContiguous('X', 2)
+    memory.allocateContiguous('C', 2)
+    memory.release('X')
+
+    expect(
+      memory.allocateFragments('A', [2, 2]),
+    ).toBe(true)
+
+    expect(memory.getCells()).toEqual([
+      'B', 'B',
+      'A', 'A',
+      'C', 'C',
+      'A', 'A',
+    ])
+
+    const released = memory.release('A')
+
+    expect(released).toBe(4)
+
+    expect(memory.getCells()).toEqual([
+      'B', 'B',
+      null, null,
+      'C', 'C',
+      null, null,
+    ])
+  })
 })

@@ -63,6 +63,49 @@ export class Memory {
 
     return true
   }
+  allocateFragments(
+    taskId: TaskId,
+    fragmentSizes: readonly number[],
+  ): boolean {
+    if (fragmentSizes.length === 0) {
+      return false
+    }
+    const nextCells = [...this.cells]
+
+    for (const size of fragmentSizes) {
+      let freeCount = 0
+      let startIndex: number | null = null
+
+      for (let i = 0; i < nextCells.length; i++) {
+        if (nextCells[i] === null) {
+          freeCount += 1
+
+          if (freeCount === size) {
+            startIndex = i - size + 1
+            break
+          }
+        } else {
+          freeCount = 0
+        }
+      }
+
+      if (startIndex === null) {
+        return false
+      }
+
+      for (
+        let i = startIndex;
+        i < startIndex + size;
+        i += 1
+      ) {
+        nextCells[i] = taskId
+      }
+    }
+
+    this.cells = nextCells
+
+    return true
+  }
 
   release(taskId: TaskId): number {
     let releasedCells = 0

@@ -19,6 +19,8 @@ export interface TaskRuntime {
   waitingTicks: number
 
   status: TaskStatus
+
+  fragmentSizes: number[]
 }
 
 export function createTaskRuntime(
@@ -29,5 +31,6 @@ export function createTaskRuntime(
     remainingDuration: definition.duration,
     waitingTicks: 0,
     status: 'waiting',
+    fragmentSizes: [definition.size],
   }
 }
