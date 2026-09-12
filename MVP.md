@@ -1097,16 +1097,16 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 
 ### 22.3 Next Engineering Work
 
-- [ ] Define minimal Expression AST / RuntimeValue types for Split.
-- [ ] Define Evaluation Context and Split Evaluation Context.
-- [ ] Define single-pivot resumable Execution Cursor / Frame model.
-- [ ] Define Waiting Task candidate handoff into the single-pivot Rule Runtime.
-- [ ] Add minimal Program Validator boundary for Expression / Scope validation.
-- [ ] Implement zero-cost traversal vs cost-bearing execution-step semantics.
-- [ ] Implement Split Action AST shape.
-- [ ] Implement SplitPlan resolution / validation.
-- [ ] Implement Split Runtime work and fragmented allocation shape.
-- [ ] Update Allocate to support fragmented Task allocation.
+- [x] Define minimal Expression AST / RuntimeValue types for Split.
+- [x] Define Evaluation Context and Split Evaluation Context.
+- [x] Define single-pivot resumable Execution Cursor / Frame model.
+- [x] Define Waiting Task candidate handoff into the single-pivot Rule Runtime.
+- [x] Add minimal Program Validator boundary for Expression / Scope validation.
+- [x] Implement zero-cost traversal vs cost-bearing execution-step semantics.
+- [x] Implement Split Action AST shape.
+- [x] Implement SplitPlan resolution / validation.
+- [x] Implement Split Runtime work and fragmented allocation shape.
+- [x] Update Allocate to support fragmented Task allocation.
 - [ ] Implement Game Controller Run / Pause / Resume / Step when UI/runtime integration needs it.
 - [ ] Implement Compaction Runtime Action.
 - [ ] Functional Rule Editor UI.

@@ -1263,4 +1263,265 @@ describe('SimulationEngine', () => {
    */
   expect(state.memory.getFreeSpace()).toBe(8)
 })
+  it('runs Split through fragmented allocation and releases every fragment', () => {
+  const taskA: TaskDefinition = {
+    id: 'A',
+    size: 4,
+    duration: 1,
+    splittable: true,
+  }
+
+  const blockerB: TaskDefinition = {
+    id: 'B',
+    size: 2,
+    duration: 100,
+    splittable: false,
+  }
+
+  const gateX: TaskDefinition = {
+    id: 'X',
+    size: 1,
+    duration: 5,
+    splittable: false,
+  }
+
+  const blockerC: TaskDefinition = {
+    id: 'C',
+    size: 2,
+    duration: 100,
+    splittable: false,
+  }
+
+  const rules: RuleProgram = [
+    {
+      id: 'split-or-allocate',
+      trigger: 'taskWaiting',
+
+      body: [
+        {
+          type: 'if',
+
+          condition: {
+            type: 'freeSpaceGreaterThanOrEqual',
+            value: 4,
+          },
+
+          then: [
+            {
+              type: 'action',
+              action: {
+                type: 'allocate',
+              },
+            },
+          ],
+
+          else: [
+            {
+              type: 'action',
+              action: {
+                type: 'split',
+
+                fragments: [
+                  {
+                    type: 'call',
+                    namespace: 'math',
+                    function: 'floor',
+
+                    arguments: [
+                      {
+                        type: 'binary',
+                        operator: 'divide',
+
+                        left: {
+                          type: 'reference',
+                          namespace: 'task',
+                          member: 'size',
+                        },
+
+                        right: {
+                          type: 'literal',
+                          value: 2,
+                        },
+                      },
+                    ],
+                  },
+
+                  {
+                    type: 'reference',
+                    namespace: 'split',
+                    member: 'remaining',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const engine = new SimulationEngine(
+    [
+      {
+        tick: 0,
+        task: taskA,
+      },
+    ],
+    8,
+    rules,
+  )
+
+  const state = engine.getState()
+
+  /*
+   * Seed:
+   *
+   * [B][B][X][ ][C][C][ ][ ]
+   *
+   * Y is only used temporarily to force C into cells 4-5.
+   */
+  const runtimeB = createTaskRuntime(blockerB)
+  runtimeB.status = 'processing'
+
+  const runtimeX = createTaskRuntime(gateX)
+  runtimeX.status = 'processing'
+
+  const runtimeC = createTaskRuntime(blockerC)
+  runtimeC.status = 'processing'
+
+  state.tasks.set('B', runtimeB)
+  state.tasks.set('X', runtimeX)
+  state.tasks.set('C', runtimeC)
+
+  state.memory.allocateContiguous('B', 2)
+  state.memory.allocateContiguous('X', 1)
+  state.memory.allocateContiguous('Y', 1)
+  state.memory.allocateContiguous('C', 2)
+
+  state.memory.release('Y')
+
+  expect(state.memory.getCells()).toEqual([
+    'B', 'B',
+    'X', null,
+    'C', 'C',
+    null, null,
+  ])
+
+  expect(state.memory.findFirstFit(4)).toBeNull()
+
+  engine.start()
+
+  /*
+   * Tick 1:
+   * Task.Size / 2
+   */
+  engine.runTick()
+
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([4])
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('waiting')
+
+  /*
+   * Tick 2:
+   * Math.Floor(...)
+   */
+  engine.runTick()
+
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([4])
+
+  /*
+   * Tick 3:
+   * physical cut
+   */
+  engine.runTick()
+
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([4])
+
+  /*
+   * Tick 4:
+   *
+   * Split completes at zero cost.
+   * Shape commits to [2,2].
+   *
+   * X has not completed yet, so Allocate condition
+   * is still false and this Rule session finishes.
+   */
+  engine.runTick()
+
+  expect(
+    state.tasks.get('A')?.fragmentSizes,
+  ).toEqual([2, 2])
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('waiting')
+
+  expect(state.queue.toArray()).toEqual(['A'])
+
+  expect(state.memory.getCells()).toEqual([
+    'B', 'B',
+    'X', null,
+    'C', 'C',
+    null, null,
+  ])
+
+  /*
+   * Tick 5:
+   *
+   * X completes during Processing phase:
+   *
+   * [B][B][ ][ ][C][C][ ][ ]
+   *
+   * Free space becomes 4, so A's next Rule session
+   * takes the Allocate branch.
+   *
+   * There is still no contiguous size-4 region,
+   * but [2,2] fits into the two holes.
+   */
+  engine.runTick()
+
+  expect(
+    state.tasks.get('X')?.status,
+  ).toBe('completed')
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('processing')
+
+  expect(state.queue.toArray()).toEqual([])
+
+  expect(state.memory.getCells()).toEqual([
+    'B', 'B',
+    'A', 'A',
+    'C', 'C',
+    'A', 'A',
+  ])
+
+  /*
+   * Tick 6:
+   *
+   * A.duration = 1, so Processing completes and
+   * Memory.release('A') must release BOTH fragments.
+   */
+  engine.runTick()
+
+  expect(
+    state.tasks.get('A')?.status,
+  ).toBe('completed')
+
+  expect(state.memory.getCells()).toEqual([
+    'B', 'B',
+    null, null,
+    'C', 'C',
+    null, null,
+  ])
+})
 })
