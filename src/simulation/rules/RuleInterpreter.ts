@@ -134,7 +134,7 @@ function executeStatements(
   }
 }
 
-function evaluateCondition(
+export function evaluateCondition(
   condition: Condition,
   state: SimulationState,
   task: TaskRuntime
