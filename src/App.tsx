@@ -1,109 +1,813 @@
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
+
 import './App.css'
 
-const memoryCells = ['A', 'A', null, null, 'B', 'B', null, null]
-const usedSlots = memoryCells.filter((taskId) => taskId !== null).length
+type SimulationStatus =
+  | 'idle'
+  | 'running'
+  | 'paused'
+  | 'halted'
+  | 'completed'
+
+type MemoryCell = {
+  taskId: string | null
+}
+
+const PROGRAM_FOCUS = 0
+const SPLIT_VIEW = 0.72
+const BOARD_FOCUS = 1
+
+const SNAP_TARGETS = [
+  PROGRAM_FOCUS,
+  SPLIT_VIEW,
+  BOARD_FOCUS,
+] as const
+
+const WHEEL_SENSITIVITY = 0.00135
+const SNAP_DELAY_MS = 140
+const SNAP_ANIMATION_MS = 240
+
+const memoryCells: MemoryCell[] = [
+  { taskId: 'Task0' },
+  { taskId: 'Task0' },
+  { taskId: 'Task0' },
+  { taskId: 'Task0' },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: 'Task1' },
+  { taskId: 'Task1' },
+  { taskId: 'Task1' },
+  { taskId: 'Task1' },
+  { taskId: 'Task1' },
+  { taskId: 'Task1' },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: 'Task0' },
+  { taskId: 'Task0' },
+  { taskId: 'Task0' },
+  { taskId: 'Task0' },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+  { taskId: null },
+]
+
+const upcomingTasks = [
+  { id: 'Task3', size: 6, arrivesIn: 2 },
+  { id: 'Task4', size: 4, arrivesIn: 5 },
+  { id: 'Task5', size: 8, arrivesIn: 9 },
+]
+
+const waitingTasks = [
+  { id: 'Task2', size: 10, waitingTicks: 0 },
+]
+
+function clampProgress(value: number) {
+  return Math.min(
+    BOARD_FOCUS,
+    Math.max(PROGRAM_FOCUS, value)
+  )
+}
+
+function findNearestSnapTarget(progress: number) {
+  return SNAP_TARGETS.reduce((nearest, candidate) => {
+    const nearestDistance =
+      Math.abs(progress - nearest)
+
+    const candidateDistance =
+      Math.abs(progress - candidate)
+
+    return candidateDistance < nearestDistance
+      ? candidate
+      : nearest
+  })
+}
 
 function App() {
+  const [simulationStatus, setSimulationStatus] =
+    useState<SimulationStatus>('idle')
+
+  const [workspaceProgress, setWorkspaceProgress] =
+    useState(PROGRAM_FOCUS)
+
+  const [isBoardPinned, setIsBoardPinned] =
+    useState(false)
+
+  const [isSnapping, setIsSnapping] =
+    useState(false)
+
+  const [tick, setTick] =
+    useState(0)
+
+  const workspaceProgressRef =
+    useRef(workspaceProgress)
+
+  const snapTimer =
+    useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const animationTimer =
+    useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const canEdit =
+    simulationStatus === 'idle'
+
+  const showsExecution =
+    simulationStatus !== 'idle'
+
+  function updateWorkspaceProgress(next: number) {
+    const clamped =
+      clampProgress(next)
+
+    workspaceProgressRef.current =
+      clamped
+
+    setWorkspaceProgress(clamped)
+  }
+
+  function stopPendingSnap() {
+    if (snapTimer.current) {
+      clearTimeout(snapTimer.current)
+      snapTimer.current = null
+    }
+
+    if (animationTimer.current) {
+      clearTimeout(animationTimer.current)
+      animationTimer.current = null
+    }
+
+    setIsSnapping(false)
+  }
+
+  function animateWorkspaceTo(target: number) {
+    if (isBoardPinned && target !== SPLIT_VIEW) {
+      return
+    }
+
+    if (snapTimer.current) {
+      clearTimeout(snapTimer.current)
+      snapTimer.current = null
+    }
+
+    if (animationTimer.current) {
+      clearTimeout(animationTimer.current)
+    }
+
+    setIsSnapping(true)
+
+    requestAnimationFrame(() => {
+      updateWorkspaceProgress(target)
+    })
+
+    animationTimer.current = setTimeout(() => {
+      setIsSnapping(false)
+      animationTimer.current = null
+    }, SNAP_ANIMATION_MS)
+  }
+
+  function scheduleSnap() {
+    if (isBoardPinned) {
+      return
+    }
+
+    if (snapTimer.current) {
+      clearTimeout(snapTimer.current)
+    }
+
+    snapTimer.current = setTimeout(() => {
+      const target =
+        findNearestSnapTarget(
+          workspaceProgressRef.current
+        )
+
+      animateWorkspaceTo(target)
+    }, SNAP_DELAY_MS)
+  }
+
+  function startSimulation() {
+    setSimulationStatus('running')
+
+    animateWorkspaceTo(
+      isBoardPinned
+        ? SPLIT_VIEW
+        : BOARD_FOCUS
+    )
+  }
+
+  function pauseSimulation() {
+    setSimulationStatus((current) => {
+      if (current === 'running') {
+        return 'paused'
+      }
+
+      if (current === 'paused') {
+        return 'running'
+      }
+
+      return current
+    })
+  }
+
+  function stepSimulation() {
+    if (
+      simulationStatus !== 'running' &&
+      simulationStatus !== 'paused'
+    ) {
+      return
+    }
+
+    setTick((current) =>
+      current + 1
+    )
+  }
+
+  function resetSimulation() {
+    setSimulationStatus('idle')
+    setTick(0)
+
+    animateWorkspaceTo(
+      isBoardPinned
+        ? SPLIT_VIEW
+        : PROGRAM_FOCUS
+    )
+  }
+
+  function toggleBoardPin() {
+    setIsBoardPinned((current) => {
+      const next =
+        !current
+
+      stopPendingSnap()
+
+      if (next) {
+        requestAnimationFrame(() => {
+          setIsSnapping(true)
+          updateWorkspaceProgress(SPLIT_VIEW)
+
+          animationTimer.current =
+            setTimeout(() => {
+              setIsSnapping(false)
+            }, SNAP_ANIMATION_MS)
+        })
+      }
+
+      return next
+    })
+  }
+
+  function handleWorkspaceWheel(
+    event: ReactWheelEvent<HTMLElement>
+  ) {
+    if (isBoardPinned) {
+      return
+    }
+
+    const target =
+      event.target as HTMLElement
+
+    const scrollRegion =
+      target.closest<HTMLElement>(
+        '[data-workspace-scroll-region="true"]'
+      )
+
+    if (scrollRegion) {
+      const atTop =
+        scrollRegion.scrollTop <= 0
+
+      const atBottom =
+        scrollRegion.scrollTop +
+          scrollRegion.clientHeight >=
+        scrollRegion.scrollHeight - 1
+
+      const scrollingUp =
+        event.deltaY < 0
+
+      const scrollingDown =
+        event.deltaY > 0
+
+      if (
+        (scrollingUp && !atTop) ||
+        (scrollingDown && !atBottom)
+      ) {
+        return
+      }
+    }
+
+    event.preventDefault()
+
+    if (isSnapping) {
+      stopPendingSnap()
+    }
+
+    const nextProgress =
+      workspaceProgressRef.current +
+      event.deltaY * WHEEL_SENSITIVITY
+
+    updateWorkspaceProgress(
+      nextProgress
+    )
+
+    scheduleSnap()
+  }
+
+  const boardPercent =
+    workspaceProgress * 66
+
+  const programPercent =
+    100 - boardPercent
+
+  const workspaceStyle = {
+    '--board-size': `${boardPercent}%`,
+    '--program-size': `${programPercent}%`,
+  } as CSSProperties
+
   return (
-    <main className="app-shell">
+    <main
+      className={[
+        'game-shell',
+        isSnapping
+          ? 'game-shell--snapping'
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onWheel={handleWorkspaceWheel}
+    >
       <header className="topbar">
-        <div>
-          <p className="eyebrow">Prototype 0.1</p>
-          <h1>Memory Management Game</h1>
+        <div className="brand">
+          <span className="brand__kicker">
+            Prototype UI
+          </span>
+
+          <strong>
+            Memory Management Game
+          </strong>
         </div>
 
-        <span className="status-badge">EDIT MODE</span>
+        <div className="topbar__center">
+          <span className="tick-label">
+            Tick
+          </span>
+
+          <span className="tick-value">
+            {tick}
+          </span>
+
+          <span className="mode-badge">
+            {simulationStatus.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="topbar__controls">
+          {simulationStatus === 'idle' ? (
+            <button
+              type="button"
+              className="control control--primary"
+              onClick={startSimulation}
+            >
+              Run
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="control control--active"
+                onClick={pauseSimulation}
+              >
+                {simulationStatus === 'paused'
+                  ? 'Resume'
+                  : 'Pause'}
+              </button>
+
+              <button
+                type="button"
+                className="control"
+                onClick={stepSimulation}
+              >
+                Step
+              </button>
+
+              <button
+                type="button"
+                className="control"
+                onClick={resetSimulation}
+              >
+                Reset
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
-      <section className="workspace">
-        <aside className="panel queue-panel">
-          <h2>Incoming / Queue</h2>
+      <section
+        className="workspace"
+        style={workspaceStyle}
+      >
+        <section className="board-panel">
+          <aside
+            className="task-rail"
+            data-workspace-scroll-region="true"
+          >
+            <TaskSection title="Upcoming">
+              {upcomingTasks.map(
+                (task, index) => (
+                  <article
+                    className="task-card"
+                    key={task.id}
+                  >
+                    <span className="task-card__index">
+                      {index === 0
+                        ? 'NOW'
+                        : `+${index}`}
+                    </span>
 
-          <div className="request-card current-request">
-            <span>Current</span>
-            <strong>Task A</strong>
-            <small>Size 2 · Duration 3</small>
-          </div>
+                    <strong>
+                      {task.id}
+                    </strong>
 
-          <div className="request-card">
-            <span>Next</span>
-            <strong>Task B</strong>
-            <small>Size 2 · Duration 4</small>
-          </div>
+                    <small>
+                      Size {task.size}
+                    </small>
 
-          <div className="request-card">
-            <span>Next + 1</span>
-            <strong>Task C</strong>
-            <small>Size 3 · Duration 2</small>
-          </div>
+                    <small>
+                      Arrives in{' '}
+                      {task.arrivesIn} ticks
+                    </small>
+                  </article>
+                )
+              )}
+            </TaskSection>
 
-          <div className="queue">
-            <h3>Queue</h3>
-            <div className="queue-item">Task D</div>
-            <div className="queue-item">Task E</div>
-          </div>
-        </aside>
+            <TaskSection title="Waiting">
+              {waitingTasks.map(
+                (task) => (
+                  <article
+                    className="task-card task-card--waiting"
+                    key={task.id}
+                  >
+                    <strong>
+                      {task.id}
+                    </strong>
 
-        <section className="panel memory-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Memory</h2>
-              <p>8 slots</p>
+                    <small>
+                      Size {task.size}
+                    </small>
+
+                    <small>
+                      Waiting{' '}
+                      {task.waitingTicks} ticks
+                    </small>
+                  </article>
+                )
+              )}
+            </TaskSection>
+          </aside>
+
+          <section className="memory-panel">
+            <div className="panel-heading">
+              <div>
+                <span className="panel-kicker">
+                  Simulation World
+                </span>
+
+                <h1>
+                  Memory Arena
+                </h1>
+              </div>
+
+              <div className="memory-summary">
+                <span>32 blocks</span>
+                <span>18 used</span>
+                <span>14 free</span>
+              </div>
             </div>
 
-            <span>
-              {usedSlots} / {memoryCells.length} used
-            </span>
-          </div>
+            <div
+              className="memory-board"
+              aria-label="Memory arena"
+            >
+              {memoryCells.map(
+                (cell, index) => (
+                  <div
+                    className={[
+                      'memory-cell',
+                      cell.taskId
+                        ? 'memory-cell--occupied'
+                        : '',
+                      cell.taskId === 'Task0'
+                        ? 'memory-cell--task0'
+                        : '',
+                      cell.taskId === 'Task1'
+                        ? 'memory-cell--task1'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    key={index}
+                  >
+                    <span className="memory-cell__index">
+                      {index}
+                    </span>
 
-          <div className="memory-grid">
-            {memoryCells.map((taskId, index) => (
-              <div
-                className={`memory-cell ${taskId ? 'occupied' : ''}`}
-                key={index}
-              >
-                <span className="memory-index">{index}</span>
-                <strong>{taskId ?? ''}</strong>
+                    {cell.taskId && (
+                      <strong className="memory-cell__task">
+                        {cell.taskId}
+                      </strong>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="processing-strip">
+              <div className="processing-card">
+                <span className="processing-dot processing-dot--task0" />
+                <strong>Task0</strong>
+                <span>Processing</span>
+                <span>3 ticks left</span>
               </div>
-            ))}
-          </div>
+
+              <div className="processing-card">
+                <span className="processing-dot processing-dot--task1" />
+                <strong>Task1</strong>
+                <span>Processing</span>
+                <span>5 ticks left</span>
+              </div>
+            </div>
+          </section>
         </section>
 
-        <aside className="panel rules-panel">
-          <h2>Rule Editor</h2>
-
-          <div className="rule-block">
-            <span>WHEN</span>
-            <strong>Request Arrives</strong>
-          </div>
-
-          <div className="rule-block">
-            <span>IF</span>
-            <strong>Size &gt; 3</strong>
-          </div>
-
-          <div className="rule-block">
-            <span>DO</span>
-            <strong>Enqueue</strong>
-          </div>
-
-          <button type="button">Add Rule</button>
-        </aside>
-      </section>
-
-      <section className="console">
-        <div className="console-status">
-          <span>Tick: <strong>0</strong></span>
-          <span>Status: <strong>Ready</strong></span>
-          <span>Score: <strong>0</strong></span>
-        </div>
-
-        <div className="log">
-          <h2>Log</h2>
-          <p>[Tick 0] System ready.</p>
-        </div>
+        <RuleProgramPanel
+          canEdit={canEdit}
+          showsExecution={showsExecution}
+          isBoardPinned={isBoardPinned}
+          onToggleBoardPin={toggleBoardPin}
+          onFocusProgram={() =>
+            animateWorkspaceTo(
+              PROGRAM_FOCUS
+            )
+          }
+          onFocusBoard={() =>
+            animateWorkspaceTo(
+              BOARD_FOCUS
+            )
+          }
+          onSplitView={() =>
+            animateWorkspaceTo(
+              SPLIT_VIEW
+            )
+          }
+        />
       </section>
     </main>
+  )
+}
+
+function TaskSection({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <section className="task-section">
+      <div className="task-section__heading">
+        <h2>{title}</h2>
+      </div>
+
+      <div className="task-section__list">
+        {children}
+      </div>
+    </section>
+  )
+}
+
+function RuleProgramPanel({
+  canEdit,
+  showsExecution,
+  isBoardPinned,
+  onToggleBoardPin,
+  onFocusProgram,
+  onFocusBoard,
+  onSplitView,
+}: {
+  canEdit: boolean
+  showsExecution: boolean
+  isBoardPinned: boolean
+  onToggleBoardPin: () => void
+  onFocusProgram: () => void
+  onFocusBoard: () => void
+  onSplitView: () => void
+}) {
+  return (
+    <section className="rule-panel">
+      <div className="rule-panel__toolbar">
+        <div>
+          <span className="panel-kicker">
+            Player Logic
+          </span>
+
+          <h2>
+            Rule Program
+          </h2>
+        </div>
+
+        <div className="rule-panel__actions">
+          <button
+            type="button"
+            className="control control--small"
+            onClick={onFocusProgram}
+            disabled={isBoardPinned}
+          >
+            Program
+          </button>
+
+          <button
+            type="button"
+            className="control control--small"
+            onClick={onSplitView}
+            disabled={isBoardPinned}
+          >
+            Split
+          </button>
+
+          <button
+            type="button"
+            className="control control--small"
+            onClick={onFocusBoard}
+            disabled={isBoardPinned}
+          >
+            Board
+          </button>
+
+          <button
+            type="button"
+            className={[
+              'control',
+              'control--small',
+              isBoardPinned
+                ? 'control--active'
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onClick={onToggleBoardPin}
+          >
+            {isBoardPinned
+              ? 'Unpin'
+              : 'Pin split'}
+          </button>
+
+          <span className="mode-badge">
+            {canEdit
+              ? 'Editable'
+              : 'Execution View'}
+          </span>
+        </div>
+      </div>
+
+      <div
+        className="rule-panel__content"
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <div className="rule-program">
+          <RuleLine
+            depth={0}
+            label="WHEN"
+            value="Task Waiting"
+          />
+
+          <RuleLine
+            depth={1}
+            label="IF"
+            value="Task.Size > 8"
+          />
+
+          <RuleLine
+            depth={2}
+            label="Split"
+            value=""
+          />
+
+          <RuleLine
+            depth={3}
+            label="Fragment 1"
+            value="Math.Floor(Task.Size / 2)"
+            highlighted={showsExecution}
+          />
+
+          <RuleLine
+            depth={3}
+            label="Fragment 2"
+            value="Split.Remaining"
+          />
+
+          <RuleLine
+            depth={2}
+            label="Allocate"
+            value=""
+          />
+
+          <RuleLine
+            depth={1}
+            label="ELSE"
+            value=""
+          />
+
+          <RuleLine
+            depth={2}
+            label="Allocate"
+            value=""
+          />
+        </div>
+
+        {canEdit && (
+          <div className="edit-tools">
+            <button type="button">
+              + Add block
+            </button>
+
+            <button type="button">
+              + Add rule
+            </button>
+          </div>
+        )}
+
+        {showsExecution && (
+          <div className="execution-caption">
+            <span className="execution-caption__dot" />
+
+            Current execution:
+            {' '}
+            Task2 · Rule 0 · Split expression
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function RuleLine({
+  depth,
+  label,
+  value,
+  highlighted = false,
+}: {
+  depth: number
+  label: string
+  value: string
+  highlighted?: boolean
+}) {
+  return (
+    <div
+      className={[
+        'rule-line',
+        highlighted
+          ? 'rule-line--current'
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={
+        {
+          '--rule-depth': depth,
+        } as CSSProperties
+      }
+    >
+      <span className="rule-line__rail" />
+
+      <span className="rule-line__label">
+        {label}
+      </span>
+
+      {value && (
+        <span className="rule-line__value">
+          {value}
+        </span>
+      )}
+
+      {highlighted && (
+        <span className="rule-line__current-label">
+          CURRENT
+        </span>
+      )}
+    </div>
   )
 }
 

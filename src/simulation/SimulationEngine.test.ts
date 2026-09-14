@@ -581,7 +581,7 @@ describe('SimulationEngine', () => {
       ruleId: 'rule-1',
       action: 'allocate',
       reason:
-        'Not enough contiguous memory for Task A',
+        'Unable to allocate memory for Task A with fragment shape [9]',
     })
 
     expect(state.tasks.get('A')?.status).toBe(

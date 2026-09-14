@@ -111,7 +111,7 @@ describe('ActionExecutor', () => {
     expect(state.queue.toArray()).toEqual(['A'])
   })
 
-  it('fails when contiguous memory is insufficient', () => {
+  it('fails when memory cannot satisfy the task fragment shape', () => {
     const state = createState()
     const task = addWaitingTask(state)
 
@@ -127,7 +127,7 @@ describe('ActionExecutor', () => {
       ok: false,
       action: 'allocate',
       reason:
-        'Not enough contiguous memory for Task A',
+        'Unable to allocate memory for Task A with fragment shape [3]',
     })
 
     expect(task.status).toBe('waiting')
