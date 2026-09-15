@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor the current GUI shell so `App.tsx` stops owning most presentational markup directly, while preserving the current GUI behavior and visual output.
+Refactor the current GUI shell so `App.tsx` stops owning most presentational markup directly, while preserving the current GUI behavior and visual output except for one explicitly approved correction: the Memory Arena summary should use level-provided capacity / used-space metadata, with free space derived as `total - used`, instead of keeping demo-only hard-coded totals.
 
 This refactor is intentionally limited to component boundaries. It does not integrate the real `GameController`, redesign the UI, introduce feature-based architecture, add a state-management library, or split stylesheets.
 
@@ -107,6 +107,21 @@ Owns:
 
 It receives memory cell data rather than owning simulation logic.
 
+For the summary, it should also receive level/runtime memory metadata:
+
+```ts
+totalBlocks
+usedBlocks
+```
+
+and derive:
+
+```ts
+freeBlocks = totalBlocks - usedBlocks
+```
+
+`totalBlocks` and `usedBlocks` are authoritative level/runtime values. They should not be inferred from rendered cell occupancy.
+
 ### `ProcessingStrip.tsx`
 
 Owns current processing-task presentation.
@@ -176,10 +191,25 @@ This refactor will not:
 - introduce `useWorkspaceNavigation` unless implementation reveals a concrete need
 - redesign layout or interaction
 - change wheel / snap semantics
-- change mock data behavior
+- change mock task/cell layout or interaction behavior
 - split `App.css`
 - add drag-and-drop rule editing
 - add an application sidebar / level-selection navigation
+
+The one approved exception is the Memory Arena summary. When a level is loaded, it provides at least:
+
+- total memory space / capacity (current prototype example: `32`)
+- used memory space (current prototype example: `14`)
+
+The UI derives:
+
+```text
+free = total - used
+```
+
+For the current prototype this yields `18 free`.
+
+`used` should not be recomputed from rendered `memoryCells`, because the level/runtime metadata is the authoritative source for the summary. `memoryCells` remain presentation data for the arena itself.
 
 ## Future Architecture Decision
 
@@ -229,7 +259,7 @@ No placeholder sidebar, reserved width, empty component, routing system, or othe
 
 ## Verification
 
-The component extraction is behavior-preserving.
+The component extraction is behavior-preserving except for the explicitly approved Memory Arena summary correction: total and used come from level/runtime metadata, while free is derived as `total - used`.
 
 Verification should include:
 
@@ -244,6 +274,8 @@ Verification should include:
    - Rule Program body scroll still does not move the outer workspace
    - current-execution highlight is unchanged
    - visual layout is unchanged
+   - Memory Arena total and used values come from level/runtime metadata
+   - Memory Arena free value is derived as `total - used`
 
 ## Completion Criteria
 
@@ -251,6 +283,6 @@ The refactor is complete when:
 
 - `App.tsx` primarily orchestrates state, transitions, and major child components;
 - board and rule-program rendering are split into focused components;
-- no intentional behavior or visual changes are introduced;
+- no intentional behavior or visual changes are introduced except the approved Memory Arena summary correction based on level/runtime metadata;
 - current GUI-shell behavior passes verification;
 - the code remains ready for later Controller integration without committing to premature feature boundaries.
