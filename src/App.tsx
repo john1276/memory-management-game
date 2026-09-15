@@ -8,7 +8,9 @@ import {
 
 import './App.css'
 
-type SimulationStatus =
+import { TopBar } from './components/TopBar'
+
+export type SimulationStatus =
   | 'idle'
   | 'running'
   | 'paused'
@@ -348,71 +350,14 @@ function App() {
         .join(' ')}
       onWheel={handleWorkspaceWheel}
     >
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand__kicker">
-            Prototype UI
-          </span>
-
-          <strong>
-            Memory Management Game
-          </strong>
-        </div>
-
-        <div className="topbar__center">
-          <span className="tick-label">
-            Tick
-          </span>
-
-          <span className="tick-value">
-            {tick}
-          </span>
-
-          <span className="mode-badge">
-            {simulationStatus.toUpperCase()}
-          </span>
-        </div>
-
-        <div className="topbar__controls">
-          {simulationStatus === 'idle' ? (
-            <button
-              type="button"
-              className="control control--primary"
-              onClick={startSimulation}
-            >
-              Run
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="control control--active"
-                onClick={pauseSimulation}
-              >
-                {simulationStatus === 'paused'
-                  ? 'Resume'
-                  : 'Pause'}
-              </button>
-
-              <button
-                type="button"
-                className="control"
-                onClick={stepSimulation}
-              >
-                Step
-              </button>
-
-              <button
-                type="button"
-                className="control"
-                onClick={resetSimulation}
-              >
-                Reset
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <TopBar
+        simulationStatus={simulationStatus}
+        tick={tick}
+        onRun={startSimulation}
+        onPauseResume={pauseSimulation}
+        onStep={stepSimulation}
+        onReset={resetSimulation}
+      />
 
       <section
         className="workspace"
