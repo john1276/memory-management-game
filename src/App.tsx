@@ -10,8 +10,6 @@ import './App.css'
 import { TopBar } from './components/TopBar'
 
 import { BoardPanel } from './components/board/BoardPanel'
-import type { MemoryCellView } from './components/board/MemoryArena'
-import type { ProcessingTaskView } from './components/board/ProcessingStrip'
 
 import { RuleProgramPanel } from './components/rules/RuleProgramPanel'
 
@@ -39,7 +37,7 @@ const SNAP_ANIMATION_MS = 240
 const totalBlocks = 32
 const usedBlocks = 14
 
-const memoryCells: MemoryCellView[] = [
+const memoryCells = [
   { taskId: 'Task0' },
   { taskId: 'Task0' },
   { taskId: 'Task0' },
@@ -84,7 +82,7 @@ const waitingTasks = [
   { id: 'Task2', size: 10, waitingTicks: 0 },
 ]
 
-const processingTasks: ProcessingTaskView[] = [
+const processingTasks = [
   {
     id: 'Task0',
     ticksLeft: 3,
