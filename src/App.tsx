@@ -8,17 +8,10 @@ import {
 import './App.css'
 
 import { TopBar } from './components/TopBar'
-import { TaskRail } from './components/board/TaskRail'
-import {
-  MemoryArena,
-  type MemoryCellView,
-} from './components/board/MemoryArena'
 
-import {
-  ProcessingStrip,
-  type ProcessingTaskView,
-} from './components/board/ProcessingStrip'
-
+import { BoardPanel } from './components/board/BoardPanel'
+import type { MemoryCellView } from './components/board/MemoryArena'
+import type { ProcessingTaskView } from './components/board/ProcessingStrip'
 
 export type SimulationStatus =
   | 'idle'
@@ -385,24 +378,14 @@ function App() {
         className="workspace"
         style={workspaceStyle}
       >
-        <section className="board-panel">
-          <TaskRail
-            upcomingTasks={upcomingTasks}
-            waitingTasks={waitingTasks}
-          />
-
-          <section className="memory-panel">
-            <MemoryArena
-              cells={memoryCells}
-              totalBlocks={totalBlocks}
-              usedBlocks={usedBlocks}
-            />
-
-            <ProcessingStrip
-              tasks={processingTasks}
-            />
-          </section>
-        </section>
+        <BoardPanel
+          memoryCells={memoryCells}
+          totalBlocks={totalBlocks}
+          usedBlocks={usedBlocks}
+          upcomingTasks={upcomingTasks}
+          waitingTasks={waitingTasks}
+          processingTasks={processingTasks}
+        />
 
         <RuleProgramPanel
           canEdit={canEdit}
