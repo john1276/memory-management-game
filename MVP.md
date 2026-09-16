@@ -1,12 +1,12 @@
 # MVP Specification
 
-> Version: v1.2
+> Version: v1.3
 >
-> Revision date: 2026-09-12
+> Revision date: 2026-09-16
 >
 > Base: `simulation-core/MVP.md`
 >
-> 本次修訂重點：確認 Split / Fragmented Allocation 已完成，補上 Runtime Diagnostics 與 Player-facing Feedback 的責任分離，更新目前 Engineering Roadmap，並將下一階段鎖定為 Compaction Runtime Action。
+> 本次修訂重點：確認 GUI Phase 1 已完成並合併回 `simulation-core`；鎖定 Compaction MVP policy 為 deterministic naive Stable Left Pack，補上其 resumable execution / atomic commit 語意與未來 policy 擴充邊界。
 
 ---
 
@@ -822,7 +822,36 @@ Split 在其 Execution / Split Context 內逐步執行；若中途遇到非法�
 
 Compaction 用於處理 External Fragmentation。
 
-MVP 使用固定、簡化的 Dummy Compaction Algorithm。
+MVP 使用固定、deterministic、naive 的 Stable Left Pack。
+
+其結果必須滿足：
+
+1. 由左至右掃描目前 Memory cells。
+2. 保留所有 occupied cells 的相對順序。
+3. 將 occupied cells 穩定地壓到 Memory 左側。
+4. 將所有 free cells 集中到 Memory 右側。
+5. 不改變 Task identity、Task lifecycle status 或 `fragmentSizes`。
+
+例如：
+
+```text
+Before: [A][A][ ][B][B][ ][C][ ]
+After:  [A][A][B][B][C][ ][ ][ ]
+```
+
+若同一 Task 已經 fragmented，其 occupied cells 仍依原本的 cell order 參與 Stable Left Pack。MVP 不建立 Fragment ID，也不因 Compaction 重寫 Task 的 logical fragment shape。
+
+`Compact` 的 MVP AST 不接受 policy 參數：
+
+```ts
+{ type: 'compact' }
+```
+
+玩家在 MVP 不能選擇或修改 Compaction policy。
+
+但 Stable Left Pack 的規劃邏輯應與 Action runtime 分離。概念上由 pure policy / planner 將目前 Memory snapshot 轉換為 immutable `CompactionPlan`；`CompactionExecution` 只負責逐 Tick 推進 work、保存 resume state，並在完成時 commit plan。
+
+因此未來 selectable / configurable / player-programmable policy 可以替換「如何產生合法 plan」，不需要重寫 `RuleExecutionSession`、通用 `ActionExecution` lifecycle 或 Memory commit boundary。
 
 ### 14.1 Compaction Cost
 
@@ -844,7 +873,47 @@ Compaction 的 Tick Cost 由：
 Compaction Cost = 2 Ticks
 ```
 
+只要某個 Task 的 occupied cell index set 在 Compaction 前後不同，就視為 moved Task；同一 Task 即使有多個 Fragment，也只計 1 Tick。
+
+若 Memory 已經符合 Stable Left Pack 結果，則：
+
+```text
+Compaction Cost = 0 Ticks
+```
+
+此時 Action 可在同一個 Rule phase 以 zero-cost completion 返回，繼續後面的 Statement，直到該 Tick 的 Rule budget 被其他 cost-bearing work 消耗或 Rule session 完成。
+
 未來 Compaction 也應遵守相同的 Runtime 原則：Action / Function 的便利性應具有可觀察的時間成本，而不是免費立即完成。
+
+### 14.2 Resumable Execution and Commit
+
+Compaction 使用：
+
+```text
+StableLeftPackPolicy
+→ CompactionPlan
+→ CompactionExecution
+→ ActionExecution
+→ RuleExecutionSession
+```
+
+`CompactionPlan` 至少描述：
+
+```text
+source Memory snapshot
+target Memory snapshot
+ordered unique moved Task IDs
+```
+
+Movement work 依 moved Task 的穩定順序推進；每個 advance 最多消耗 1 Tick。Action 必須能 suspend / resume，且 Runtime 仍維持單一 Execution Pivot。
+
+MVP 採 atomic Memory commit：完整 plan 尚未完成前，Memory 保持在合法的 pre-compaction state；最後一個必要 movement step 完成時，才一次 commit target snapshot。
+
+採 atomic commit 的原因是 fragmented Task 的 cells 可能與其他 Task 交錯。若每 Tick 直接修改單一 Task 的 cells，可能產生暫時覆蓋其他 Task、遺失 occupancy 或需要額外 scratch-buffer semantics 的中間狀態。詳細逐 Tick Memory 搬移動畫不屬於 GUI MVP。
+
+若 Compaction suspend 期間，正常 Simulation progression 使 physical Memory snapshot 改變（目前最主要來源是 Processing Task 完成並 release），舊 plan 不可直接 commit。`CompactionExecution` 必須以最新 Memory deterministic re-plan；已經消耗的 work Tick 不回退，同一執行中已支付 movement work 的 Task 不重複收費。只有仍屬於目前 plan、但尚未支付 movement work 的 Task，才繼續消耗 Tick。
+
+Compaction 本身不應因一般的 no-op 或正常 release 而產生 Runtime Failure。只有 internal invariant 被破壞、plan 無法安全套用等真正不一致狀態，才可 Failure / Halt。
 
 ---
 
@@ -929,7 +998,7 @@ Prototype 的目的不是設計「完美第一關」，而是測試：
 
 UI 應明確區分 Upcoming / Workload Preview 與 Runtime Waiting List。
 
-未來 Debug View 可顯示目前 Execution Cursor 所在的 Rule / Expression Node，但第一版 UI 的詳細呈現方式尚未鎖死。
+GUI 的 workspace、Current Execution Highlight 與 failure inspection 方向已由 `docs/GUI_MVP.md` 定義。GUI Phase 1 shell 已完成，目前仍使用 mock state；正式 Runtime execution snapshot 與 GameController integration 留待 GUI Phase 2。
 
 正常 Player UI 與完整 Runtime Debug View 應視為不同資訊層。
 
@@ -1109,7 +1178,6 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - Duration 分布。
 - `waitingTicks` 是否只用於 Score，或會影響 Failure。
 - Score 權重 / Waiting Penalty / Split Penalty / Compaction Score Cost。
-- Dummy Compaction Algorithm 的精確移動順序。
 - Task 對 Fragment 數量的限制欄位與預設上限（例如 `maxFragments` / `fragmentLimit`）。
 - Arithmetic Operator / Math Function / Action 的精確 Tick Cost Table。
 - Split 第一版實際開放哪些 Expression primitive。
@@ -1160,8 +1228,11 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - [x] Invalid / zero / negative / non-integer Fragment Result → Runtime Failure
 - [x] Split must consume the full Task Size
 - [x] Split Cost = Expression Cost + (Fragment Count - 1)
-- [x] Dummy Compaction Design
+- [x] Deterministic naive Stable Left Pack Compaction Policy
+- [x] Stable Left Pack preserves occupied-cell order and packs free space right
 - [x] Compaction Cost Based on Moved Task Count
+- [x] Compaction is resumable and commits Memory atomically
+- [x] Compaction policy planning is separate from Action execution
 - [x] Game Controller owns Run / Pause / Resume / Step scheduling
 - [x] Compiler / Bytecode VM deferred until proven necessary
 - [x] Current + Next 2 Preview
@@ -1197,6 +1268,8 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - [x] Later Waiting Task may be processed while earlier Task remains Waiting
 - [x] `waitingTicks`
 - [x] `TaskWaiting` Rule Context / Trigger
+- [x] GUI Phase 1 Workspace Shell with Mock State
+- [x] GUI Shell Presentational Component Extraction
 
 ### 22.3 Engineering Roadmap
 
@@ -1210,8 +1283,10 @@ Parser / Text DSL 若未來加入，應產生與 Rule Editor 相同的 Rule Prog
 - [x] Implement SplitPlan resolution / validation.
 - [x] Implement Split Runtime work and fragmented allocation shape.
 - [x] Update Allocate to support fragmented Task allocation.
+- [x] Complete GUI Phase 1 shell and merge `feat/gui-shell` into `simulation-core`.
 - [ ] Implement Compaction Runtime Action.
 - [ ] Implement Game Controller Run / Pause / Resume / Step when UI/runtime integration needs it.
+- [ ] GUI Phase 2 Runtime Integration.
 - [ ] Functional Rule Editor UI.
 - [ ] First Prototype Workload Data.
 - [ ] Score Numbers / Balancing.
@@ -1237,6 +1312,8 @@ Base Domain Objects
 → Fragmented Task Allocation
 → Program Validator boundary
 → End-to-end Split integration
+→ GUI Phase 1 shell
+→ GUI presentational component extraction
 ```
 
 下一階段為：
@@ -1248,13 +1325,15 @@ feat/compaction-action
 目標是實作 MVP 第二個具有多 Tick Runtime Work 的 Memory Action：
 
 1. 定義 Compaction Action AST。
-2. 定義 deterministic Dummy Compaction Algorithm。
+2. 實作 deterministic naive Stable Left Pack policy / planner。
 3. 計算實際需要移動的 Task。
 4. Compaction Cost = moved Task count。
 5. 將 Compaction 實作為可 suspend / resume 的 ActionExecution。
 6. 確保每個 cost-bearing movement 每 Tick 最多推進一步。
-7. 保持 Task identity、allocation state 與 Memory state 一致。
-8. 補上 Unit / Integration tests，驗證 Compaction 能解決 External Fragmentation。
+7. 完整 plan 完成前不修改 Memory，最後一個 movement step 原子 commit target snapshot。
+8. 若 suspend 期間 Memory snapshot 改變，使用最新狀態 deterministic re-plan，不 commit stale plan。
+9. 保持 Task identity、allocation state 與 Memory state 一致。
+10. 補上 Unit / Integration tests，驗證 Compaction 能解決 External Fragmentation。
 
 此階段的另一個重要目的，是驗證目前建立的：
 
@@ -1271,6 +1350,7 @@ Compaction 完成後，再進入：
 
 ```text
 GameController
+→ GUI Phase 2 Runtime Integration
 → Prototype Workload
 → Functional Rule Editor UI
 → Playable Prototype
@@ -1297,16 +1377,15 @@ Reset
 
 ---
 
-## 24. v1.2 Revision Notes
+## 24. v1.3 Revision Notes
 
-本版相對 v1.1 的主要修訂：
+本版相對 v1.2 的主要修訂：
 
-- 確認 `feat/split-action` 所涵蓋的 Expression Runtime、Split Runtime、Fragmented Allocation、Program Validator 與 End-to-end Integration 已完成。
-- Runtime Failure 的完整 Diagnostic Information 與 Player-facing Feedback 正式分離。
-- Engine / Runtime 應保留足夠完整的除錯資訊；UI 決定正常玩家實際看到多少資訊。
-- 不為了阻止玩家使用 DevTools 而降低 Runtime Diagnostic 品質。
-- 第一版正常 Player UI 不直接提供完整 Runtime Debug View。
-- `Engineering Roadmap` 更新為先完成 Compaction Runtime Action，再進入 GameController / Prototype Workload / Rule Editor UI。
-- 下一個建議開發分支更新為 `feat/compaction-action`。
+- 確認 GUI Phase 1 shell 與 presentational component extraction 已完成，`feat/gui-shell` 已合併回 `simulation-core`。
+- Compaction MVP policy 由未定的 Dummy Algorithm 鎖定為 deterministic naive Stable Left Pack。
+- Stable Left Pack 保留 occupied-cell order，將 free space 集中到右側。
+- moved Task 定義為 Compaction 前後 occupied index set 有改變的 Task；每個 moved Task 消耗 1 Tick，同一 fragmented Task 只計一次。
+- Compaction 採 pure policy / immutable plan 與 resumable execution 分離，完成時 atomic commit Memory。
+- 玩家在 MVP 不能修改 policy，但 runtime boundary 不綁死未來 selectable / configurable / player-programmable policy。
+- GUI Phase 2 Runtime Integration 明確列入 Compaction / GameController 後續工程階段。
 - Parser、Text DSL、Compiler、Bytecode VM、多 Execution Context Scheduler 仍維持 Future Work。
-

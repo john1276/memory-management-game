@@ -1,5 +1,9 @@
 # GUI MVP
 
+> Revision date: 2026-09-16
+>
+> Current status: Phase 1 — GUI Shell completed on `feat/gui-shell` and merged into `simulation-core`; Phase 2 — Runtime Integration not started.
+
 ## 1. Purpose
 
 本文件定義 `memory-management-game` 第一版可玩的 GUI / UX 範圍。
@@ -378,6 +382,8 @@ GUI 實作分兩個階段。
 
 ### Phase 1 — GUI Shell
 
+Status: **Completed**.
+
 先使用 mock data 驗證：
 
 - Layout
@@ -389,7 +395,22 @@ GUI 實作分兩個階段。
 
 此階段不要求接 SimulationEngine。
 
+目前已完成：
+
+- Desktop workspace shell。
+- Program / Split / Board focus transition。
+- Wheel-driven continuous workspace movement 與 snap behavior。
+- Pinned Split View。
+- Rule Program Body / outer workspace 的 scroll ownership 分離。
+- Mock Run / Pause / Resume / Step / Reset controls。
+- Mock Current Execution Highlight。
+- Top Bar、Board、Task Rail、Memory Arena、Processing Strip、Rule Program 的 presentational component boundaries。
+
+Phase 1 的完成只代表 shell / interaction prototype 已穩定；目前 `App.tsx` 仍保存 mock simulation state 與 workspace orchestration，不代表真正的 Simulation Runtime 已接入。
+
 ### Phase 2 — Runtime Integration
+
+Status: **Not started**.
 
 GUI shell 穩定後再接：
 
@@ -444,3 +465,30 @@ GUI MVP 完成時，玩家應可以：
 11. 執行期間看到 Current Execution Highlight。
 12. 在 Failure 後查看失敗時的 Board 與 Rule Program 狀態。
 13. 不需要理解內部 Runtime Diagnostics，也能從主要畫面理解「目前正在發生什麼」。
+
+---
+
+## 18. Current Delivery Boundary
+
+目前完成的是 GUI Phase 1，而不是完整 GUI MVP acceptance。
+
+已可用 mock behavior 驗證的項目：
+
+- Desktop workspace layout。
+- Program / Split / Board navigation。
+- continuous wheel transition / snap。
+- pinned Split View。
+- inner / outer scroll ownership。
+- mock simulation controls。
+- mock current-execution presentation。
+
+仍依賴 Phase 2 的項目：
+
+- `SimulationState` mapping。
+- `GameController` 與真正的 Run / Pause / Resume / Step / Reset。
+- Runtime Memory / Waiting / Upcoming / Processing data。
+- read-only Current Execution Snapshot。
+- Runtime Failure presentation。
+- 真正的 editable Structured Rule Program。
+
+Compaction Runtime Action 不要求 Phase 1 GUI 顯示每一個 internal movement step。MVP GUI 只需在未來 Runtime Integration 後正確呈現 committed Memory state，並能將 execution highlight 停留在 `Compact` block；詳細 per-Tick 搬移動畫仍是 non-goal。
