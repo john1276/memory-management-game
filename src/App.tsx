@@ -14,6 +14,12 @@ import {
   type MemoryCellView,
 } from './components/board/MemoryArena'
 
+import {
+  ProcessingStrip,
+  type ProcessingTaskView,
+} from './components/board/ProcessingStrip'
+
+
 export type SimulationStatus =
   | 'idle'
   | 'running'
@@ -81,6 +87,19 @@ const upcomingTasks = [
 
 const waitingTasks = [
   { id: 'Task2', size: 10, waitingTicks: 0 },
+]
+
+const processingTasks: ProcessingTaskView[] = [
+  {
+    id: 'Task0',
+    ticksLeft: 3,
+    colorClass: 'processing-dot--task0',
+  },
+  {
+    id: 'Task1',
+    ticksLeft: 5,
+    colorClass: 'processing-dot--task1',
+  },
 ]
 
 function clampProgress(value: number) {
@@ -379,21 +398,9 @@ function App() {
               usedBlocks={usedBlocks}
             />
 
-            <div className="processing-strip">
-              <div className="processing-card">
-                <span className="processing-dot processing-dot--task0" />
-                <strong>Task0</strong>
-                <span>Processing</span>
-                <span>3 ticks left</span>
-              </div>
-
-              <div className="processing-card">
-                <span className="processing-dot processing-dot--task1" />
-                <strong>Task1</strong>
-                <span>Processing</span>
-                <span>5 ticks left</span>
-              </div>
-            </div>
+            <ProcessingStrip
+              tasks={processingTasks}
+            />
           </section>
         </section>
 
