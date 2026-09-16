@@ -9,7 +9,10 @@ import './App.css'
 
 import { TopBar } from './components/TopBar'
 import { TaskRail } from './components/board/TaskRail'
-
+import {
+  MemoryArena,
+  type MemoryCellView,
+} from './components/board/MemoryArena'
 
 export type SimulationStatus =
   | 'idle'
@@ -17,10 +20,6 @@ export type SimulationStatus =
   | 'paused'
   | 'halted'
   | 'completed'
-
-type MemoryCell = {
-  taskId: string | null
-}
 
 const PROGRAM_FOCUS = 0
 const SPLIT_VIEW = 0.72
@@ -36,7 +35,10 @@ const WHEEL_SENSITIVITY = 0.00135
 const SNAP_DELAY_MS = 140
 const SNAP_ANIMATION_MS = 240
 
-const memoryCells: MemoryCell[] = [
+const totalBlocks = 32
+const usedBlocks = 14
+
+const memoryCells: MemoryCellView[] = [
   { taskId: 'Task0' },
   { taskId: 'Task0' },
   { taskId: 'Task0' },
@@ -371,60 +373,11 @@ function App() {
           />
 
           <section className="memory-panel">
-            <div className="panel-heading">
-              <div>
-                <span className="panel-kicker">
-                  Simulation World
-                </span>
-
-                <h1>
-                  Memory Arena
-                </h1>
-              </div>
-
-              <div className="memory-summary">
-                <span>32 blocks</span>
-                <span>18 used</span>
-                <span>14 free</span>
-              </div>
-            </div>
-
-            <div
-              className="memory-board"
-              aria-label="Memory arena"
-            >
-              {memoryCells.map(
-                (cell, index) => (
-                  <div
-                    className={[
-                      'memory-cell',
-                      cell.taskId
-                        ? 'memory-cell--occupied'
-                        : '',
-                      cell.taskId === 'Task0'
-                        ? 'memory-cell--task0'
-                        : '',
-                      cell.taskId === 'Task1'
-                        ? 'memory-cell--task1'
-                        : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    key={index}
-                  >
-                    <span className="memory-cell__index">
-                      {index}
-                    </span>
-
-                    {cell.taskId && (
-                      <strong className="memory-cell__task">
-                        {cell.taskId}
-                      </strong>
-                    )}
-                  </div>
-                )
-              )}
-            </div>
+            <MemoryArena
+              cells={memoryCells}
+              totalBlocks={totalBlocks}
+              usedBlocks={usedBlocks}
+            />
 
             <div className="processing-strip">
               <div className="processing-card">
