@@ -293,38 +293,7 @@ function App() {
     if (isBoardPinned) {
       return
     }
-
-    const target =
-      event.target as HTMLElement
-
-    const scrollRegion =
-      target.closest<HTMLElement>(
-        '[data-workspace-scroll-region="true"]'
-      )
-
-    if (scrollRegion) {
-      const atTop =
-        scrollRegion.scrollTop <= 0
-
-      const atBottom =
-        scrollRegion.scrollTop +
-          scrollRegion.clientHeight >=
-        scrollRegion.scrollHeight - 1
-
-      const scrollingUp =
-        event.deltaY < 0
-
-      const scrollingDown =
-        event.deltaY > 0
-
-      if (
-        (scrollingUp && !atTop) ||
-        (scrollingDown && !atBottom)
-      ) {
-        return
-      }
-    }
-
+    
     event.preventDefault()
 
     if (isSnapping) {

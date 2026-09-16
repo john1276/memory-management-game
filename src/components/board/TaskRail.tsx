@@ -24,7 +24,7 @@ export function TaskRail({
   return (
     <aside
       className="task-rail"
-      data-workspace-scroll-region="true"
+      onWheel={(event) => event.stopPropagation()}
     >
       <TaskSection title="Upcoming">
         {upcomingTasks.map((task, index) => (

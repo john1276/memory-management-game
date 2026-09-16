@@ -186,6 +186,7 @@ button {
 .task-rail {
   border-radius: 12px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .task-section + .task-section {
