@@ -2,13 +2,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
 
 import './App.css'
 
 import { TopBar } from './components/TopBar'
+import { TaskRail } from './components/board/TaskRail'
+
 
 export type SimulationStatus =
   | 'idle'
@@ -364,64 +365,10 @@ function App() {
         style={workspaceStyle}
       >
         <section className="board-panel">
-          <aside
-            className="task-rail"
-            data-workspace-scroll-region="true"
-          >
-            <TaskSection title="Upcoming">
-              {upcomingTasks.map(
-                (task, index) => (
-                  <article
-                    className="task-card"
-                    key={task.id}
-                  >
-                    <span className="task-card__index">
-                      {index === 0
-                        ? 'NOW'
-                        : `+${index}`}
-                    </span>
-
-                    <strong>
-                      {task.id}
-                    </strong>
-
-                    <small>
-                      Size {task.size}
-                    </small>
-
-                    <small>
-                      Arrives in{' '}
-                      {task.arrivesIn} ticks
-                    </small>
-                  </article>
-                )
-              )}
-            </TaskSection>
-
-            <TaskSection title="Waiting">
-              {waitingTasks.map(
-                (task) => (
-                  <article
-                    className="task-card task-card--waiting"
-                    key={task.id}
-                  >
-                    <strong>
-                      {task.id}
-                    </strong>
-
-                    <small>
-                      Size {task.size}
-                    </small>
-
-                    <small>
-                      Waiting{' '}
-                      {task.waitingTicks} ticks
-                    </small>
-                  </article>
-                )
-              )}
-            </TaskSection>
-          </aside>
+          <TaskRail
+            upcomingTasks={upcomingTasks}
+            waitingTasks={waitingTasks}
+          />
 
           <section className="memory-panel">
             <div className="panel-heading">
@@ -523,25 +470,6 @@ function App() {
   )
 }
 
-function TaskSection({
-  title,
-  children,
-}: {
-  title: string
-  children: ReactNode
-}) {
-  return (
-    <section className="task-section">
-      <div className="task-section__heading">
-        <h2>{title}</h2>
-      </div>
-
-      <div className="task-section__list">
-        {children}
-      </div>
-    </section>
-  )
-}
 
 function RuleProgramPanel({
   canEdit,
