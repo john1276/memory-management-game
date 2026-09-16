@@ -13,6 +13,8 @@ import { BoardPanel } from './components/board/BoardPanel'
 import type { MemoryCellView } from './components/board/MemoryArena'
 import type { ProcessingTaskView } from './components/board/ProcessingStrip'
 
+import { RuleLine } from './components/rules/RuleLine'
+
 export type SimulationStatus =
   | 'idle'
   | 'running'
@@ -545,54 +547,6 @@ function RuleProgramPanel({
         )}
       </div>
     </section>
-  )
-}
-
-function RuleLine({
-  depth,
-  label,
-  value,
-  highlighted = false,
-}: {
-  depth: number
-  label: string
-  value: string
-  highlighted?: boolean
-}) {
-  return (
-    <div
-      className={[
-        'rule-line',
-        highlighted
-          ? 'rule-line--current'
-          : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-      style={
-        {
-          '--rule-depth': depth,
-        } as CSSProperties
-      }
-    >
-      <span className="rule-line__rail" />
-
-      <span className="rule-line__label">
-        {label}
-      </span>
-
-      {value && (
-        <span className="rule-line__value">
-          {value}
-        </span>
-      )}
-
-      {highlighted && (
-        <span className="rule-line__current-label">
-          CURRENT
-        </span>
-      )}
-    </div>
   )
 }
 
