@@ -77,6 +77,12 @@ export function executeAction(
       reason:
         'Split action requires resumable execution',
     }
+    case 'compact':
+      return {
+        ok: false,
+        action: 'compact',
+        reason: 'Compact action requires resumable execution',
+      }
   }
 }
 export type ActionExecution =
@@ -152,6 +158,13 @@ export function createActionExecution(
         },
       }
     }
+
+    case 'compact':
+      return {
+        ok: false,
+        action: 'compact',
+        reason: 'Compact action is not implemented',
+      }
   }
 }
 

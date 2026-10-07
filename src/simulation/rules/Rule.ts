@@ -26,6 +26,9 @@ export type Action =
       type: 'allocate'
     }
   | {
+      type: 'compact'
+    }
+  | {
       type: 'split'
       fragments: readonly Expression[]
     }

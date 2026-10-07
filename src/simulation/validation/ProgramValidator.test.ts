@@ -9,6 +9,21 @@ import {
 } from './ProgramValidator'
 
 describe('ProgramValidator', () => {
+  it('accepts a compact action before allocate', () => {
+    const program: RuleProgram = [
+      {
+        id: 'compact-before-allocate',
+        trigger: 'taskWaiting',
+        body: [
+          { type: 'action', action: { type: 'compact' } },
+          { type: 'action', action: { type: 'allocate' } },
+        ],
+      },
+    ]
+
+    expect(validateRuleProgram(program)).toEqual([])
+  })
+
   it('rejects invalid Math arity inside Split expressions', () => {
     const program: RuleProgram = [
       {
