@@ -99,6 +99,7 @@ export class GameController {
     return createGameViewModel(
       this.engine.getState(),
       this.playbackStatus,
+      this.options.ruleProgram,
       this.validationErrors,
     )
   }

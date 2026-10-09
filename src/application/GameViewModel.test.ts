@@ -25,6 +25,7 @@ describe('createGameViewModel', () => {
       createGameViewModel(
         engine.getState(),
         'idle',
+        prototypeRuleProgram,
       )
 
     expect(view.status).toBe('idle')
@@ -61,6 +62,23 @@ describe('createGameViewModel', () => {
 
     expect(view.waitingTasks).toEqual([])
     expect(view.processingTasks).toEqual([])
+
+    expect(view.ruleProgram).toEqual([
+      {
+        id:
+          'allocate-waiting-task:when',
+        depth: 0,
+        label: 'WHEN',
+        value: 'Task Waiting',
+      },
+      {
+        id:
+          'allocate-waiting-task:body.0',
+        depth: 1,
+        label: 'Allocate',
+        value: '',
+      },
+    ])
   })
 
   it('maps real runtime state after one tick', () => {
@@ -78,6 +96,7 @@ describe('createGameViewModel', () => {
       createGameViewModel(
         engine.getState(),
         'running',
+        prototypeRuleProgram,
       )
 
     expect(view.status).toBe('running')
@@ -125,6 +144,7 @@ describe('createGameViewModel', () => {
       createGameViewModel(
         engine.getState(),
         'paused',
+        prototypeRuleProgram,
       )
 
     expect(

@@ -1,8 +1,13 @@
+import type {
+  RuleProgramLineViewModel,
+} from '../../application/RuleProgramViewModel'
+
 import { RuleLine } from './RuleLine'
 
 type RuleProgramPanelProps = {
-  canEdit: boolean
-  showsExecution: boolean
+  programLines:
+    readonly RuleProgramLineViewModel[]
+
   isBoardPinned: boolean
   onToggleBoardPin: () => void
   onFocusProgram: () => void
@@ -11,8 +16,7 @@ type RuleProgramPanelProps = {
 }
 
 export function RuleProgramPanel({
-  canEdit,
-  showsExecution,
+  programLines,
   isBoardPinned,
   onToggleBoardPin,
   onFocusProgram,
@@ -79,89 +83,35 @@ export function RuleProgramPanel({
           </button>
 
           <span className="mode-badge">
-            {canEdit
-              ? 'Editable'
-              : 'Execution View'}
+            Program Definition
           </span>
         </div>
       </div>
 
       <div
         className="rule-panel__content"
-        onWheel={(event) => event.stopPropagation()}
+        onWheel={(event) =>
+          event.stopPropagation()
+        }
       >
         <div className="rule-program">
-          <RuleLine
-            depth={0}
-            label="WHEN"
-            value="Task Waiting"
-          />
-
-          <RuleLine
-            depth={1}
-            label="IF"
-            value="Task.Size > 8"
-          />
-
-          <RuleLine
-            depth={2}
-            label="Split"
-            value=""
-          />
-
-          <RuleLine
-            depth={3}
-            label="Fragment 1"
-            value="Math.Floor(Task.Size / 2)"
-            highlighted={showsExecution}
-          />
-
-          <RuleLine
-            depth={3}
-            label="Fragment 2"
-            value="Split.Remaining"
-          />
-
-          <RuleLine
-            depth={2}
-            label="Allocate"
-            value=""
-          />
-
-          <RuleLine
-            depth={1}
-            label="ELSE"
-            value=""
-          />
-
-          <RuleLine
-            depth={2}
-            label="Allocate"
-            value=""
-          />
+          {programLines.length === 0 ? (
+            <RuleLine
+              depth={0}
+              label="EMPTY"
+              value="No rules configured"
+            />
+          ) : (
+            programLines.map((line) => (
+              <RuleLine
+                key={line.id}
+                depth={line.depth}
+                label={line.label}
+                value={line.value}
+              />
+            ))
+          )}
         </div>
-
-        {canEdit && (
-          <div className="edit-tools">
-            <button type="button">
-              + Add block
-            </button>
-
-            <button type="button">
-              + Add rule
-            </button>
-          </div>
-        )}
-
-        {showsExecution && (
-          <div className="execution-caption">
-            <span className="execution-caption__dot" />
-
-            Current execution:
-            {' '}
-            Task2 · Rule 0 · Split expression
-          </div>
-        )}
       </div>
     </section>
   )

@@ -4,9 +4,15 @@ import type {
   SimulationState,
   SimulationStatus,
 } from '../simulation/SimulationState'
+import type { RuleProgram } from '../simulation/rules/Rule'
 import type {
   ProgramValidationError,
 } from '../simulation/validation/ProgramValidator'
+
+import {
+  createRuleProgramViewModel,
+  type RuleProgramLineViewModel,
+} from './RuleProgramViewModel'
 
 export type PlaybackStatus =
   | 'idle'
@@ -57,6 +63,9 @@ export interface GameViewModel {
   readonly waitingTasks: readonly WaitingTaskViewModel[]
   readonly processingTasks: readonly ProcessingTaskViewModel[]
 
+  readonly ruleProgram:
+    readonly RuleProgramLineViewModel[]
+
   readonly failure: FailureViewModel | null
   readonly validationErrors: readonly string[]
 }
@@ -64,6 +73,7 @@ export interface GameViewModel {
 export function createGameViewModel(
   state: SimulationState,
   playbackStatus: PlaybackStatus,
+  ruleProgram: RuleProgram,
   validationErrors: readonly ProgramValidationError[] = [],
 ): GameViewModel {
   const memoryCells =
@@ -139,6 +149,11 @@ export function createGameViewModel(
     upcomingTasks,
     waitingTasks,
     processingTasks,
+
+    ruleProgram:
+      createRuleProgramViewModel(
+        ruleProgram,
+      ),
 
     failure:
       state.failure

@@ -7,18 +7,23 @@ import {
 
 import './App.css'
 
+import {
+  GameController,
+} from './application/GameController'
+
 import { TopBar } from './components/TopBar'
 
 import { BoardPanel } from './components/board/BoardPanel'
 
 import { RuleProgramPanel } from './components/rules/RuleProgramPanel'
 
-export type SimulationStatus =
-  | 'idle'
-  | 'running'
-  | 'paused'
-  | 'halted'
-  | 'completed'
+import {
+  prototypeRuleProgram,
+} from './data/prototypeRuleProgram'
+
+import {
+  prototypeWorkload,
+} from './data/prototypeWorkload'
 
 const PROGRAM_FOCUS = 0
 const SPLIT_VIEW = 0.72
@@ -34,66 +39,7 @@ const WHEEL_SENSITIVITY = 0.00135
 const SNAP_DELAY_MS = 140
 const SNAP_ANIMATION_MS = 240
 
-const totalBlocks = 32
-const usedBlocks = 14
-
-const memoryCells = [
-  { taskId: 'Task0' },
-  { taskId: 'Task0' },
-  { taskId: 'Task0' },
-  { taskId: 'Task0' },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: 'Task1' },
-  { taskId: 'Task1' },
-  { taskId: 'Task1' },
-  { taskId: 'Task1' },
-  { taskId: 'Task1' },
-  { taskId: 'Task1' },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: 'Task0' },
-  { taskId: 'Task0' },
-  { taskId: 'Task0' },
-  { taskId: 'Task0' },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-  { taskId: null },
-]
-
-const upcomingTasks = [
-  { id: 'Task3', size: 6, arrivesIn: 2 },
-  { id: 'Task4', size: 4, arrivesIn: 5 },
-  { id: 'Task5', size: 8, arrivesIn: 9 },
-]
-
-const waitingTasks = [
-  { id: 'Task2', size: 10, waitingTicks: 0 },
-]
-
-const processingTasks = [
-  {
-    id: 'Task0',
-    ticksLeft: 3,
-    colorClass: 'processing-dot--task0',
-  },
-  {
-    id: 'Task1',
-    ticksLeft: 5,
-    colorClass: 'processing-dot--task1',
-  },
-]
+const MEMORY_CAPACITY = 32
 
 function clampProgress(value: number) {
   return Math.min(
@@ -117,8 +63,26 @@ function findNearestSnapTarget(progress: number) {
 }
 
 function App() {
-  const [simulationStatus, setSimulationStatus] =
-    useState<SimulationStatus>('idle')
+  const [controller] =
+    useState(
+      () =>
+        new GameController({
+          workload:
+            prototypeWorkload,
+
+          memoryCapacity:
+            MEMORY_CAPACITY,
+
+          ruleProgram:
+            prototypeRuleProgram,
+        }),
+    )
+
+  const [gameView, setGameView] =
+    useState(
+      () =>
+        controller.getViewModel(),
+    )
 
   const [workspaceProgress, setWorkspaceProgress] =
     useState(PROGRAM_FOCUS)
@@ -129,9 +93,6 @@ function App() {
   const [isSnapping, setIsSnapping] =
     useState(false)
 
-  const [tick, setTick] =
-    useState(0)
-
   const workspaceProgressRef =
     useRef(workspaceProgress)
 
@@ -141,11 +102,11 @@ function App() {
   const animationTimer =
     useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const canEdit =
-    simulationStatus === 'idle'
-
-  const showsExecution =
-    simulationStatus !== 'idle'
+  function syncGameView() {
+    setGameView(
+      controller.getViewModel(),
+    )
+  }
 
   function updateWorkspaceProgress(next: number) {
     const clamped =
@@ -217,7 +178,16 @@ function App() {
   }
 
   function startSimulation() {
-    setSimulationStatus('running')
+    controller.start()
+
+    const nextView =
+      controller.getViewModel()
+
+    setGameView(nextView)
+
+    if (nextView.status === 'idle') {
+      return
+    }
 
     animateWorkspaceTo(
       isBoardPinned
@@ -227,35 +197,18 @@ function App() {
   }
 
   function pauseSimulation() {
-    setSimulationStatus((current) => {
-      if (current === 'running') {
-        return 'paused'
-      }
-
-      if (current === 'paused') {
-        return 'running'
-      }
-
-      return current
-    })
+    controller.togglePause()
+    syncGameView()
   }
 
   function stepSimulation() {
-    if (
-      simulationStatus !== 'running' &&
-      simulationStatus !== 'paused'
-    ) {
-      return
-    }
-
-    setTick((current) =>
-      current + 1
-    )
+    controller.step()
+    syncGameView()
   }
 
   function resetSimulation() {
-    setSimulationStatus('idle')
-    setTick(0)
+    controller.reset()
+    syncGameView()
 
     animateWorkspaceTo(
       isBoardPinned
@@ -293,7 +246,7 @@ function App() {
     if (isBoardPinned) {
       return
     }
-    
+
     event.preventDefault()
 
     if (isSnapping) {
@@ -335,8 +288,8 @@ function App() {
       onWheel={handleWorkspaceWheel}
     >
       <TopBar
-        simulationStatus={simulationStatus}
-        tick={tick}
+        simulationStatus={gameView.status}
+        tick={gameView.tick}
         onRun={startSimulation}
         onPauseResume={pauseSimulation}
         onStep={stepSimulation}
@@ -348,17 +301,16 @@ function App() {
         style={workspaceStyle}
       >
         <BoardPanel
-          memoryCells={memoryCells}
-          totalBlocks={totalBlocks}
-          usedBlocks={usedBlocks}
-          upcomingTasks={upcomingTasks}
-          waitingTasks={waitingTasks}
-          processingTasks={processingTasks}
+          memoryCells={gameView.memoryCells}
+          totalBlocks={gameView.totalBlocks}
+          usedBlocks={gameView.usedBlocks}
+          upcomingTasks={gameView.upcomingTasks}
+          waitingTasks={gameView.waitingTasks}
+          processingTasks={gameView.processingTasks}
         />
 
         <RuleProgramPanel
-          canEdit={canEdit}
-          showsExecution={showsExecution}
+          programLines={gameView.ruleProgram}
           isBoardPinned={isBoardPinned}
           onToggleBoardPin={toggleBoardPin}
           onFocusProgram={() =>
