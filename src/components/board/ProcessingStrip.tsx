@@ -1,11 +1,15 @@
+import {
+  getProcessingTaskColorClass,
+} from './taskColor'
+
 export type ProcessingTaskView = {
-  id: string
-  ticksLeft: number
-  colorClass: string
+  readonly id: string
+  readonly ticksLeft: number
 }
 
 type ProcessingStripProps = {
-  tasks: ProcessingTaskView[]
+  tasks:
+    readonly ProcessingTaskView[]
 }
 
 export function ProcessingStrip({
@@ -21,7 +25,9 @@ export function ProcessingStrip({
           <span
             className={[
               'processing-dot',
-              task.colorClass,
+              getProcessingTaskColorClass(
+                task.id,
+              ),
             ].join(' ')}
           />
 

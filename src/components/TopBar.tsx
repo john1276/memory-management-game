@@ -1,7 +1,9 @@
-import type { SimulationStatus } from '../App'
+import type {
+  GameStatus,
+} from '../application/GameViewModel'
 
 type TopBarProps = {
-  simulationStatus: SimulationStatus
+  simulationStatus: GameStatus
   tick: number
   onRun: () => void
   onPauseResume: () => void
@@ -17,6 +19,10 @@ export function TopBar({
   onStep,
   onReset,
 }: TopBarProps) {
+  const canPauseOrStep =
+    simulationStatus === 'running' ||
+    simulationStatus === 'paused'
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -54,23 +60,27 @@ export function TopBar({
           </button>
         ) : (
           <>
-            <button
-              type="button"
-              className="control control--active"
-              onClick={onPauseResume}
-            >
-              {simulationStatus === 'paused'
-                ? 'Resume'
-                : 'Pause'}
-            </button>
+            {canPauseOrStep && (
+              <>
+                <button
+                  type="button"
+                  className="control control--active"
+                  onClick={onPauseResume}
+                >
+                  {simulationStatus === 'paused'
+                    ? 'Resume'
+                    : 'Pause'}
+                </button>
 
-            <button
-              type="button"
-              className="control"
-              onClick={onStep}
-            >
-              Step
-            </button>
+                <button
+                  type="button"
+                  className="control"
+                  onClick={onStep}
+                >
+                  Step
+                </button>
+              </>
+            )}
 
             <button
               type="button"

@@ -15,12 +15,12 @@ import {
 } from './TaskRail'
 
 type BoardPanelProps = {
-  memoryCells: MemoryCellView[]
+  memoryCells: readonly MemoryCellView[]
   totalBlocks: number
   usedBlocks: number
-  upcomingTasks: UpcomingTaskView[]
-  waitingTasks: WaitingTaskView[]
-  processingTasks: ProcessingTaskView[]
+  upcomingTasks: readonly UpcomingTaskView[]
+  waitingTasks: readonly WaitingTaskView[]
+  processingTasks: readonly ProcessingTaskView[]
 }
 
 export function BoardPanel({

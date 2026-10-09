@@ -1,9 +1,13 @@
+import {
+  getMemoryTaskColorClass,
+} from './taskColor'
+
 export type MemoryCellView = {
-  taskId: string | null
+  readonly taskId: string | null
 }
 
 type MemoryArenaProps = {
-  cells: MemoryCellView[]
+  cells: readonly MemoryCellView[]
   totalBlocks: number
   usedBlocks: number
 }
@@ -55,11 +59,10 @@ export function MemoryArena({
               cell.taskId
                 ? 'memory-cell--occupied'
                 : '',
-              cell.taskId === 'Task0'
-                ? 'memory-cell--task0'
-                : '',
-              cell.taskId === 'Task1'
-                ? 'memory-cell--task1'
+              cell.taskId
+                ? getMemoryTaskColorClass(
+                    cell.taskId,
+                  )
                 : '',
             ]
               .filter(Boolean)

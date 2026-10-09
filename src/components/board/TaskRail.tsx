@@ -1,20 +1,23 @@
 import { TaskSection } from './TaskSection'
 
 export type UpcomingTaskView = {
-  id: string
-  size: number
-  arrivesIn: number
+  readonly id: string
+  readonly size: number
+  readonly arrivesIn: number
 }
 
 export type WaitingTaskView = {
-  id: string
-  size: number
-  waitingTicks: number
+  readonly id: string
+  readonly size: number
+  readonly waitingTicks: number
 }
 
 type TaskRailProps = {
-  upcomingTasks: UpcomingTaskView[]
-  waitingTasks: WaitingTaskView[]
+  upcomingTasks:
+    readonly UpcomingTaskView[]
+
+  waitingTasks:
+    readonly WaitingTaskView[]
 }
 
 export function TaskRail({
@@ -33,7 +36,7 @@ export function TaskRail({
             key={task.id}
           >
             <span className="task-card__index">
-              {index === 0
+              {task.arrivesIn === 0
                 ? 'NOW'
                 : `+${index}`}
             </span>
